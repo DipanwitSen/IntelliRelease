@@ -1,0 +1,11 @@
+backend-java/target/
+backend-java/.idea/
+ai-service/.venv/
+ai-service/__pycache__/
+ai-service/.pytest_cache/
+frontend-angular/node_modules/
+frontend-angular/dist/
+frontend-angular/.angular/
+.DS_Store
+.env
+*.log
