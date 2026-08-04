@@ -1,0 +1,103 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: intellirelease
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:mem:intellirelease;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1}
+    driver-class-name: ${DB_DRIVER:org.h2.Driver}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway is the single source of truth for schema. Hibernate never writes
+      # DDL and never second-guesses the migration.
+      ddl-auto: ${DDL_AUTO:none}
+    properties:
+      hibernate:
+        dialect: ${DB_DIALECT:org.hibernate.dialect.H2Dialect}
+        format_sql: false
+  flyway:
+    enabled: true
+    # {vendor} resolves to h2 or postgresql. The schema is identical in shape;
+    # only JSONB/UUID-default syntax differs between the two engines.
+    locations: ${FLYWAY_LOCATIONS:classpath:db/migration/{vendor}}
+    baseline-on-migrate: true
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+intellirelease:
+  tenant:
+    default-id: eli-lilly
+  github:
+    api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+    app-id: ${GITHUB_APP_ID:}
+    private-key-path: ${GITHUB_PRIVATE_KEY_PATH:}
+    token: ${GITHUB_TOKEN:}
+  ai-service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+    timeout-seconds: ${AI_SERVICE_TIMEOUT_SECONDS:60}
+    # Architectural invariant: raw source code is never sent to the model.
+    send-diffs: ${LLM_SEND_DIFFS:false}
+  teams:
+    webhook-url: ${TEAMS_WEBHOOK_URL:}
+  email:
+    from: ${EMAIL_FROM:intellirelease@demo.local}
+    developer-distribution: ${DEVELOPER_DISTRIBUTION:dev-team@demo.local}
+    qa-distribution: ${QA_DISTRIBUTION:qa-team@demo.local}
+    business-distribution: ${BUSINESS_DISTRIBUTION:business-team@demo.local}
+    client-distribution: ${CLIENT_DISTRIBUTION:client-comms@demo.local}
+  security:
+    jwt:
+      issuer: ${JWT_ISSUER:intellirelease-poc}
+      audience: ${JWT_AUDIENCE:intellirelease}
+      # POC only. Enterprise deployment replaces this with Entra ID / Keycloak.
+      secret: ${JWT_SECRET:intellirelease-poc-development-signing-key-change-me-0123456789}
+      ttl-minutes: ${JWT_TTL_MINUTES:480}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,http://localhost:8085}
+  jobs:
+    poll-interval-ms: ${JOB_POLL_INTERVAL_MS:2000}
+    batch-size: ${JOB_BATCH_SIZE:5}
+    worker-enabled: ${JOB_WORKER_ENABLED:true}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [corr=%X{correlationId:-none}] %-5level %logger{36} - %msg%n"
+  level:
+    com.gyansys.intellirelease: ${LOG_LEVEL:INFO}

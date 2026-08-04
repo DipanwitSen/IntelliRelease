@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+# ---------------------------------------------------------------------------
+# IntelliRelease Maven bootstrap (POSIX)
+#
+# Maven is not assumed to be installed. On first run this downloads Apache
+# Maven into backend/.mvn/ and delegates to it. Subsequent runs are instant.
+#   Usage:  ./mvnw clean package
+# ---------------------------------------------------------------------------
+set -e
+
+MAVEN_VERSION=3.9.9
+BASE_DIR=$(cd "$(dirname "$0")" && pwd)
+MVN_ROOT="$BASE_DIR/.mvn"
+MVN_HOME="$MVN_ROOT/apache-maven-$MAVEN_VERSION"
+MVN_BIN="$MVN_HOME/bin/mvn"
+
+if [ ! -x "$MVN_BIN" ]; then
+  echo "[mvnw] Apache Maven $MAVEN_VERSION not found locally. Downloading..."
+  URL="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$MAVEN_VERSION/apache-maven-$MAVEN_VERSION-bin.zip"
+  TMP_ZIP="${TMPDIR:-/tmp}/apache-maven-$MAVEN_VERSION-bin.zip"
+  mkdir -p "$MVN_ROOT"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$TMP_ZIP" "$URL"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$TMP_ZIP" "$URL"
+  else
+    echo "[mvnw] ERROR: neither curl nor wget available. Install Maven manually." >&2
+    exit 1
+  fi
+
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$TMP_ZIP" -d "$MVN_ROOT"
+  else
+    echo "[mvnw] ERROR: unzip not available. Install Maven manually." >&2
+    exit 1
+  fi
+
+  rm -f "$TMP_ZIP"
+  chmod +x "$MVN_BIN" 2>/dev/null || true
+fi
+
+exec "$MVN_BIN" "$@"
