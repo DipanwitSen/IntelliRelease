@@ -14,7 +14,7 @@ ALTER TABLE release ADD COLUMN built_at                  TIMESTAMP WITH TIME ZON
 ALTER TABLE release ADD COLUMN analyzed_at               TIMESTAMP WITH TIME ZONE;
 
 CREATE TABLE cleanup_recommendation (
-    recommendation_id          UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    recommendation_id          UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     tenant_id                  VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     cronjob_name               VARCHAR(255) NOT NULL,
     current_retention_days     INTEGER,

@@ -9,12 +9,12 @@ spring:
     init:
       mode: never
 
-intellirelease:
-  github:
-    # Empty secret => webhook HMAC verification runs in "unsigned demo" mode and
-    # the event is persisted with signature_valid = false. The pipeline still runs,
-    # but the UI labels the event as unverified. Never do this outside the POC.
-    webhook-secret: ""
+management:
+  health:
+    mail:
+      # MailHog is explicitly optional in dev (see comment above): its absence
+      # should not flip the whole /actuator/health aggregate to DOWN.
+      enabled: false
 
 logging:
   level:

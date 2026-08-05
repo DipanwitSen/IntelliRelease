@@ -69,8 +69,17 @@ public class JobQueue {
     /**
      * Polls for due work and runs it. Each job runs in its own transaction so a
      * poison message cannot roll back its siblings.
+     *
+     * <p>{@code @Transactional} is required here, not just on the mark* methods
+     * below: {@link JobRepository#claim} is a {@code @Modifying} query with
+     * {@code flushAutomatically = true}, and a flush has nowhere to go without an
+     * active transaction on this thread. The per-job try/catch in
+     * {@link #runClaimed} still absorbs any single job's failure before it can
+     * reach this method, so one poison message still cannot roll back its
+     * siblings even though they now share a physical transaction.
      */
     @Scheduled(fixedDelayString = "${intellirelease.jobs.poll-interval-ms:2000}")
+    @Transactional
     public void poll() {
         if (!config.workerEnabled()) {
             return;

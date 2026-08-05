@@ -113,6 +113,10 @@ public class SecurityConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
+        // Actuator health/info are public (see authorizeHttpRequests above) so the
+        // dashboard can show live backend status; CORS must be registered
+        // separately since it does not fall under /api/**.
+        source.registerCorsConfiguration("/actuator/**", configuration);
         return source;
     }
 }

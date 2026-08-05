@@ -8,7 +8,7 @@
 -- Keep the two files in lockstep. PostgreSQL is the persistent target.
 
 CREATE TABLE webhook_event (
-    event_id        UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    event_id        UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     tenant_id       VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     provider        VARCHAR(50)  NOT NULL,
     delivery_id     VARCHAR(255) NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE webhook_event (
 );
 
 CREATE TABLE pull_request (
-    pr_id         UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    pr_id         UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     tenant_id     VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     repo_name     VARCHAR(255) NOT NULL,
     pr_number     INTEGER      NOT NULL,
@@ -61,7 +61,7 @@ CREATE TABLE pr_analysis (
 );
 
 CREATE TABLE release (
-    release_id           UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    release_id           UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     tenant_id            VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     repo_name            VARCHAR(255) NOT NULL,
     version              VARCHAR(100) NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE release_pr (
 );
 
 CREATE TABLE release_note (
-    note_id          UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    note_id          UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     release_id       UUID         NOT NULL REFERENCES release(release_id),
     tenant_id        VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     audience         VARCHAR(30)  NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE release_note (
 );
 
 CREATE TABLE audit_event (
-    audit_id       UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    audit_id       UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     tenant_id      VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     actor          VARCHAR(255) NOT NULL,
     action         VARCHAR(100) NOT NULL,
@@ -113,7 +113,7 @@ CREATE TABLE audit_event (
 );
 
 CREATE TABLE job (
-    job_id       UUID PRIMARY KEY DEFAULT RANDOM_UUID(),
+    job_id       UUID DEFAULT RANDOM_UUID() PRIMARY KEY,
     tenant_id    VARCHAR(100) NOT NULL DEFAULT 'eli-lilly',
     kind         VARCHAR(100) NOT NULL,
     payload      JSON         NOT NULL,
