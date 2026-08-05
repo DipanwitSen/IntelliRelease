@@ -1,0 +1,1815 @@
+{
+  "$schema": "https://intellirelease.dev/schemas/sap-commerce-context/v1.json",
+  "meta": {
+    "name": "SAP Commerce Change Knowledge Base",
+    "version": "1.0.0",
+    "purpose": "Deterministic change-impact analysis, regression recommendation, deployment risk assessment and AI explanation for SAP Commerce Cloud implementations without requiring full-codebase inspection.",
+    "consumer": "IntelliRelease SAP Commerce Context Engine",
+    "companion_document": "SAP_COMMERCE_CHANGE_KNOWLEDGE_BASE.md",
+    "contains_source_code": false,
+    "contains_business_logic": false,
+    "contains_secrets": false,
+    "generalization_policy": "Client-specific class names are normalized to architectural roles. Any artifact whose name carries a client prefix is recorded with client_specific=true and a generalized role name."
+  },
+
+  "platform": {
+    "suite": "SAP Commerce Cloud",
+    "version_line": "2211",
+    "jdk_line": "21",
+    "deployment_model": "CCv2",
+    "storefront_model": "headless-composable-storefront",
+    "frontend_framework": "Angular",
+    "frontend_framework_version_line": "21.x",
+    "storefront_library": "Spartacus",
+    "storefront_library_version_line": "2211.x",
+    "search_engine": "Solr Cloud",
+    "commerce_model": "B2B",
+    "integration_backbone": ["SCPI", "S4HANA-Order-Management", "IntegrationAPI-inbound", "IntegrationAPI-outbound"],
+    "identity_model": ["external-oidc-idp", "saml-sso-backoffice", "oauth2-authorization-server"]
+  },
+
+  "aspects": {
+    "api": {
+      "serves": ["occ-v2-rest-api", "authorization-server", "sso-webapp", "personalization-webservices", "permission-webservices"],
+      "restart_impact": "storefront-outage",
+      "blast_radius": "critical"
+    },
+    "backoffice": {
+      "serves": ["backoffice", "hac", "smartedit", "cms-webservices", "media"],
+      "restart_impact": "authoring-and-admin-outage",
+      "blast_radius": "high"
+    },
+    "accstorefront": {
+      "serves": ["media-delivery"],
+      "restart_impact": "asset-outage",
+      "blast_radius": "medium"
+    },
+    "backgroundProcessing": {
+      "serves": ["cronjobs", "integration-node-group", "hac"],
+      "restart_impact": "batch-and-integration-outage",
+      "blast_radius": "high"
+    }
+  },
+
+  "layers": {
+    "order": ["platform_data", "persistence", "service", "facade", "api_web", "frontend"],
+    "propagation": "upward",
+    "cross_cutting": ["integration", "search", "security", "content", "configuration"]
+  },
+
+  "propagation_rules": [
+    { "id": "R1", "name": "upward-propagation", "statement": "A change at layer N can affect every layer above N; it rarely affects layers below." },
+    { "id": "R2", "name": "type-system-is-the-floor", "statement": "items.xml changes propagate to every layer plus database, Solr, integration payloads, ImpEx and Backoffice. Highest fan-out of any artifact." },
+    { "id": "R3", "name": "spring-is-the-wiring", "statement": "Spring XML can change system behaviour with zero Java diff. Always treat as a first-class change." },
+    { "id": "R4", "name": "alias-override-is-invisible-substitution", "statement": "An alias repointing a platform bean name to a custom class changes behaviour for every caller, including untouched out-of-the-box extensions." },
+    { "id": "R5", "name": "populator-lists-are-shared", "statement": "Populators added to a converter list affect every consumer of that converter: OCC, emails, exports, Backoffice." },
+    { "id": "R6", "name": "contract-symmetry", "statement": "OCC field-set mappings and frontend OCC endpoint field lists must move together; changing one alone causes silent data loss in the UI." },
+    { "id": "R7", "name": "solr-needs-a-rebuild", "statement": "Any change to indexed properties, value providers or indexer queries requires a full reindex before it is observable." },
+    { "id": "R8", "name": "impex-is-environment-state", "statement": "ImpEx executes rather than deploys; re-running mutates live data. Idempotency determines risk." }
+  ],
+
+  "extension_roles": {
+    "core": {
+      "name_pattern": "*core",
+      "layer": ["service", "persistence"],
+      "business_capability": "Type system, services, DAOs, strategies, business processes, events, jobs, interceptors, ERP outbound helpers, email service, system setup",
+      "upstream": ["platform", "b2b-commerce", "sap-cpi-integration", "s4-order-management", "identity-extension", "accelerator-cms"],
+      "downstream": ["facades", "occ", "data-extensions", "backoffice", "patches"],
+      "client_specific": true
+    },
+    "facades": {
+      "name_pattern": "*facades",
+      "layer": ["facade"],
+      "business_capability": "Facades, converters, populators, data beans, email contexts, Solr field value providers",
+      "upstream": ["core", "commerce-facades", "b2b-commerce-facades", "cms-facades", "customer-ticketing-facades"],
+      "downstream": ["occ", "email-rendering", "solr-indexing", "exports"],
+      "client_specific": true
+    },
+    "occ": {
+      "name_pattern": "*commerceocc|*occ",
+      "layer": ["api_web"],
+      "business_capability": "REST controllers, WsDTOs, field-set mappings, request filters, OCC validators, inbound persistence hooks, ERP payload/response services",
+      "upstream": ["facades", "core", "b2bocc", "cmsocc", "swaggerintegration", "inboundservices", "sap-cpi-order-exchange"],
+      "downstream": ["frontend", "external-api-consumers", "swagger-contract"],
+      "client_specific": true
+    },
+    "identity": {
+      "name_pattern": "*auth0|*idp|*identity",
+      "layer": ["service"],
+      "business_capability": "External identity provider integration: token verification, user provisioning, invitation and deactivation payloads",
+      "upstream": ["platform"],
+      "downstream": ["core", "occ", "frontend-auth-flow", "invitation-jobs", "deactivation-jobs"],
+      "client_specific": true
+    },
+    "initial_data": {
+      "name_pattern": "*initialdata",
+      "layer": ["platform_data"],
+      "business_capability": "System setup entrypoint, core/sample data import services, catalog sync job service, first-wave store data",
+      "upstream": ["core"],
+      "downstream": ["environment-data-state"],
+      "client_specific": true
+    },
+    "rollout_data": {
+      "name_pattern": "*phase*data",
+      "layer": ["platform_data"],
+      "business_capability": "Per-market/per-wave store, site, catalog, CMS and Solr data. One extension per rollout phase.",
+      "upstream": ["core"],
+      "downstream": ["markets-owned-by-the-phase"],
+      "client_specific": true,
+      "scoping_note": "Impact is limited to the markets the extension owns unless it touches shared common data."
+    },
+    "backoffice": {
+      "name_pattern": "*backoffice",
+      "layer": ["admin"],
+      "business_capability": "Custom widgets, editors, renderers, role/site-scoped security, authentication provider",
+      "upstream": ["core", "platformbackoffice"],
+      "downstream": ["admin-workflows"],
+      "client_specific": true
+    },
+    "patches": {
+      "name_pattern": "*patches",
+      "layer": ["platform_data"],
+      "business_capability": "Versioned, release-scoped, idempotent data migrations: ImpEx import, Groovy execution, catalog sync, Solr indexing, Excel import",
+      "upstream": ["core", "patches-framework"],
+      "downstream": ["environment-data-state"],
+      "client_specific": true
+    },
+    "test": {
+      "name_pattern": "*test",
+      "layer": ["test"],
+      "business_capability": "Integration test harness",
+      "upstream": ["facades", "initial_data"],
+      "downstream": [],
+      "client_specific": true
+    }
+  },
+
+  "file_classification": [
+    { "pattern": "**/resources/*-items.xml", "artifact_type": "items_xml", "priority": 100 },
+    { "pattern": "**/resources/*-beans.xml", "artifact_type": "beans_xml", "priority": 100 },
+    { "pattern": "**/resources/**/web/spring/*-web-spring.xml", "artifact_type": "occ_web_spring", "priority": 98 },
+    { "pattern": "**/resources/*-backoffice-config.xml", "artifact_type": "backoffice_config", "priority": 97 },
+    { "pattern": "**/resources/*-backoffice-spring.xml", "artifact_type": "backoffice_spring", "priority": 97 },
+    { "pattern": "**/resources/*-backoffice-widgets.xml", "artifact_type": "backoffice_widget", "priority": 97 },
+    { "pattern": "**/backoffice/resources/widgets*/**/definition.xml", "artifact_type": "backoffice_widget", "priority": 97 },
+    { "pattern": "**/resources/**/integration/*-spring.xml", "artifact_type": "hot_folder_config", "priority": 96 },
+    { "pattern": "**/resources/*-spring.xml", "artifact_type": "spring_xml", "priority": 95 },
+    { "pattern": "**/extensioninfo.xml", "artifact_type": "extension_dependency", "priority": 99 },
+    { "pattern": "**/config/localextensions.xml", "artifact_type": "extension_set", "priority": 100 },
+    { "pattern": "manifest.json", "artifact_type": "cloud_manifest", "priority": 100 },
+    { "pattern": "config.json", "artifact_type": "project_descriptor", "priority": 95 },
+    { "pattern": "**/src/**/controllers/*.java", "artifact_type": "occ_controller", "priority": 90 },
+    { "pattern": "**/src/**/filter/*.java", "artifact_type": "occ_filter", "priority": 92 },
+    { "pattern": "**/src/**/validators/*.java", "artifact_type": "validator", "priority": 90 },
+    { "pattern": "**/src/**/interceptors/*.java", "artifact_type": "interceptor", "priority": 90 },
+    { "pattern": "**/src/**/hook/**/*.java", "artifact_type": "hook", "priority": 90 },
+    { "pattern": "**/src/**/*Hook.java", "artifact_type": "hook", "priority": 90 },
+    { "pattern": "**/src/**/setup/*SystemSetup.java", "artifact_type": "system_setup", "priority": 88 },
+    { "pattern": "**/src/**/*ValueProvider.java", "artifact_type": "solr_value_provider", "priority": 88 },
+    { "pattern": "**/src/**/strategies/**/*.java", "artifact_type": "strategy", "priority": 88 },
+    { "pattern": "**/src/**/release/*.java", "artifact_type": "patch", "priority": 88 },
+    { "pattern": "**/src/**/actions/*.java", "artifact_type": "process_action", "priority": 86 },
+    { "pattern": "**/src/**/job/**/*.java", "artifact_type": "cronjob", "priority": 86 },
+    { "pattern": "**/src/**/*Job.java", "artifact_type": "cronjob", "priority": 86 },
+    { "pattern": "**/src/**/keygenerator/*.java", "artifact_type": "key_generator", "priority": 86 },
+    { "pattern": "**/src/**/*Facade*.java", "artifact_type": "facade", "priority": 85 },
+    { "pattern": "**/src/**/dao/**/*.java", "artifact_type": "dao", "priority": 85 },
+    { "pattern": "**/src/**/*Dao.java", "artifact_type": "dao", "priority": 85 },
+    { "pattern": "**/src/**/event/**/*.java", "artifact_type": "event_or_listener", "priority": 82 },
+    { "pattern": "**/src/**/populator/**/*.java", "artifact_type": "populator", "priority": 80 },
+    { "pattern": "**/src/**/*Populator.java", "artifact_type": "populator", "priority": 80 },
+    { "pattern": "**/src/**/*Converter.java", "artifact_type": "converter", "priority": 80 },
+    { "pattern": "**/src/**/*Service*.java", "artifact_type": "service", "priority": 78 },
+    { "pattern": "**/resources/**/processes/*.xml", "artifact_type": "business_process", "priority": 92 },
+    { "pattern": "**/resources/**/import/security/*.impex", "artifact_type": "impex_security", "priority": 96 },
+    { "pattern": "**/resources/**/*integration-setup*.impex", "artifact_type": "impex_integration", "priority": 96 },
+    { "pattern": "**/resources/**/essentialdata-Inbound*.impex", "artifact_type": "integration_object", "priority": 96 },
+    { "pattern": "**/resources/**/essentialdata-Outbound*.impex", "artifact_type": "integration_object", "priority": 96 },
+    { "pattern": "**/resources/**/stores/*/solr*.impex", "artifact_type": "solr_config", "priority": 94 },
+    { "pattern": "**/resources/**/cronjobs.impex", "artifact_type": "impex_cronjob", "priority": 94 },
+    { "pattern": "**/resources/**/releases/**/*", "artifact_type": "patch_data", "priority": 90 },
+    { "pattern": "**/resources/**/stores/*/*.impex", "artifact_type": "impex_store", "priority": 90 },
+    { "pattern": "**/resources/**/*ContentCatalog/**/*.impex", "artifact_type": "cms_content", "priority": 84 },
+    { "pattern": "**/resources/**/productCatalogs/**/*.impex", "artifact_type": "impex_catalog", "priority": 84 },
+    { "pattern": "**/resources/**/import/**/*.impex", "artifact_type": "impex_general", "priority": 80 },
+    { "pattern": "**/resources/**/emails/*.vm", "artifact_type": "email_template", "priority": 78 },
+    { "pattern": "**/resources/**/*.vm", "artifact_type": "template", "priority": 70 },
+    { "pattern": "**/config/ccv2/**/*.properties", "artifact_type": "properties_environment", "priority": 88 },
+    { "pattern": "**/project.properties", "artifact_type": "properties_extension", "priority": 85 },
+    { "pattern": "**/config/local.properties", "artifact_type": "properties_local", "priority": 85 },
+    { "pattern": "**/resources/localization/*.properties", "artifact_type": "backend_i18n", "priority": 60 },
+    { "pattern": "**/testsrc/**/*.java", "artifact_type": "test", "priority": 50 },
+    { "pattern": "**/src/app/app.module.ts", "artifact_type": "frontend_root_module", "priority": 92 },
+    { "pattern": "**/src/app/**/configs/*.ts", "artifact_type": "frontend_occ_config", "priority": 92 },
+    { "pattern": "**/src/app/**/*-configuration.module.ts", "artifact_type": "frontend_occ_config", "priority": 92 },
+    { "pattern": "**/js-storefront/**/package.json", "artifact_type": "frontend_dependencies", "priority": 90 },
+    { "pattern": "**/src/app/**/*-features.module.ts", "artifact_type": "frontend_feature_registry", "priority": 88 },
+    { "pattern": "**/src/app/**/guards/*.ts", "artifact_type": "frontend_guard", "priority": 88 },
+    { "pattern": "**/src/app/**/interceptors/*.ts", "artifact_type": "frontend_interceptor", "priority": 88 },
+    { "pattern": "**/src/environments/*.ts", "artifact_type": "frontend_environment", "priority": 85 },
+    { "pattern": "**/js-storefront/**/angular.json", "artifact_type": "frontend_build_config", "priority": 85 },
+    { "pattern": "**/src/app/**/*.module.ts", "artifact_type": "frontend_module", "priority": 80 },
+    { "pattern": "**/build.gradle", "artifact_type": "build_config", "priority": 80 },
+    { "pattern": "**/src/app/**/*.adapter.ts", "artifact_type": "frontend_adapter", "priority": 78 },
+    { "pattern": "**/src/app/**/*.connector.ts", "artifact_type": "frontend_connector", "priority": 76 },
+    { "pattern": "**/src/app/**/*.service.ts", "artifact_type": "frontend_service", "priority": 74 },
+    { "pattern": "**/src/app/**/model/*.ts", "artifact_type": "frontend_model", "priority": 74 },
+    { "pattern": "**/.github/workflows/*.yml", "artifact_type": "ci_pipeline", "priority": 70 },
+    { "pattern": "**/src/app/**/*.component.ts", "artifact_type": "frontend_component", "priority": 70 },
+    { "pattern": "**/src/app/**/*.component.html", "artifact_type": "frontend_component_template", "priority": 65 },
+    { "pattern": "**/src/app/**/*.pipe.ts", "artifact_type": "frontend_pipe", "priority": 60 },
+    { "pattern": "**/public/translations/**/*.json", "artifact_type": "frontend_i18n", "priority": 60 },
+    { "pattern": "**/src/**/*.scss", "artifact_type": "frontend_style", "priority": 55 }
+  ],
+
+  "artifact_types": {
+
+    "items_xml": {
+      "display_name": "Type System Definition",
+      "layer": "persistence",
+      "general_role": "Declares item types, attributes, enums, collections, relations, deployment tables and typecodes, and indexes. Drives model code generation, DDL and the persistence schema.",
+      "client_implementation": "Client-specific implementation detected. Extends platform types (order, order entry, address, B2B customer, B2B unit, product, base store, price row, discount row, CS ticket, SAP configuration, CMS component types) with commerce and ERP-alignment attributes; introduces custom types for assortment control, profit centre, payment terms, shipping configuration, document-type configuration, stock notifications, temporary customers, FAQ and forms CMS components, customer/price grouping user groups, invitation and deactivation cron job types, and cron job run results.",
+      "generalized_meaning": "Type system change: the highest fan-out artifact in SAP Commerce.",
+      "business_capability": ["product-and-pricing-model", "customer-organisation-hierarchy", "order-structure", "assortment-entitlement", "service-ticketing", "content-model"],
+      "upstream_dependencies": ["platform-type-system", "required-extension-types"],
+      "downstream_dependencies": ["generated-models", "dao", "service", "facade", "populator", "beans_xml", "occ_controller", "solr_config", "integration_object", "impex_general", "backoffice_config", "frontend_model"],
+      "potential_impact": ["database-ddl-change", "model-regeneration-required", "solr-schema-drift", "integration-payload-contract-change", "impex-header-break", "backoffice-editor-mismatch"],
+      "regression_areas": ["full-smoke", "domain-specific-deep-regression"],
+      "deployment_risk": "critical",
+      "required_actions": ["system-update", "verify-model-regeneration", "review-ddl"],
+      "related_configuration": ["extension_set", "extension_dependency", "system-update-settings"],
+      "related_integrations": ["all-inbound-objects", "all-outbound-objects", "solr"],
+      "sub_changes": {
+        "add_optional_attribute": { "risk": "medium", "note": "Additive but still requires system update and model regeneration." },
+        "add_new_type_with_typecode": { "risk": "high", "note": "New table; typecode is effectively permanent." },
+        "change_attribute_type_or_persistence": { "risk": "critical", "note": "Potential data loss." },
+        "remove_attribute_or_type": { "risk": "critical", "note": "Destructive; breaks all consumers." },
+        "add_or_change_relation": { "risk": "high", "note": "New relation table; cardinality affects queries." },
+        "add_or_change_index": { "risk": "high", "note": "Rebuild cost on large tables; can be a fix or a lock risk." },
+        "extend_dynamic_enum": { "risk": "medium", "note": "Consumers may not handle new values." }
+      }
+    },
+
+    "beans_xml": {
+      "display_name": "Data/DTO Bean Definition",
+      "layer": "facade",
+      "general_role": "Generates Data (facade DTO) and WsDTO (API DTO) classes; extends platform DTOs with additional fields.",
+      "client_implementation": "Client-specific implementation detected. Facade beans extend order, order-entry, cart, order-history, product, variant-option, address, customer and search DTOs and define account-summary, shipping-configuration, temporary-customer, FAQ and sales-document-type data objects. Web-service beans extend the equivalent WsDTOs and define ERP account, order and invoice result DTOs.",
+      "generalized_meaning": "API/data contract definition.",
+      "business_capability": ["api-payload-shape"],
+      "upstream_dependencies": ["items_xml", "populator"],
+      "downstream_dependencies": ["populator", "converter", "occ_web_spring", "frontend_model", "swagger-contract"],
+      "potential_impact": ["field-added-but-never-populated", "field-removal-breaks-frontend", "rename-breaks-all-clients"],
+      "regression_areas": ["all-endpoints-returning-the-dto", "corresponding-frontend-model-bindings"],
+      "deployment_risk": "high",
+      "required_actions": ["regenerate-api-documentation", "coordinate-frontend-release-if-breaking"],
+      "related_configuration": ["occ_web_spring", "frontend_occ_config"],
+      "related_integrations": ["erp-response-contracts"]
+    },
+
+    "spring_xml": {
+      "display_name": "Spring Service Wiring",
+      "layer": "service",
+      "general_role": "Declares and wires beans; overrides platform behaviour via alias, parent and list-merge directives; registers interceptor mappings, process definition resources and value providers.",
+      "client_implementation": "Client-specific implementation detected. The core context overrides platform bean aliases for order service, cart service and cart factory, add-to-cart and update-cart-entry strategies, calculation service, customer account service, user service, delivery service, catalog version service, email service, ticket service and DAO, password policy service, order and cart key generators, price criteria/query provider/post-matcher, delivery-address lookup strategies, cart validation strategy and the search Solr query populator. It registers interceptor mappings, business process definition resources, email generation actions and ERP outbound/simulation helpers. The facade context registers converters, populator list mutations, email contexts, Solr field value providers, image-format mappings and address-format mappings.",
+      "generalized_meaning": "Behavioural wiring: can change system behaviour with zero Java diff.",
+      "business_capability": ["all"],
+      "upstream_dependencies": ["required-extension-beans", "property-placeholders"],
+      "downstream_dependencies": ["every-caller-of-the-aliased-bean-name"],
+      "potential_impact": ["silent-behaviour-substitution", "context-load-failure", "duplicate-bean-ids", "changed-population-order"],
+      "regression_areas": ["determined-by-bean-role"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-context-startup-on-all-aspects"],
+      "related_configuration": ["properties_extension", "properties_local", "application-context-property"],
+      "related_integrations": ["outbound-rest-template-strategies", "destination-services", "payload-creators", "response-processors"],
+      "high_risk_patterns": [
+        { "pattern": "alias-over-platform-bean", "reason": "Global behavioural substitution affecting all consumers.", "risk": "high" },
+        { "pattern": "listMergeDirective-into-filter-chain", "reason": "Changes the request pipeline for all traffic.", "risk": "critical" },
+        { "pattern": "listMergeDirective-into-hook-list", "reason": "Changes the order/cart lifecycle for all operations.", "risk": "high" },
+        { "pattern": "modifyPopulatorList", "reason": "Alters every DTO built through that converter.", "risk": "medium" },
+        { "pattern": "InterceptorMapping", "reason": "Fires on every save of the type including ImpEx and integration writes.", "risk": "high" },
+        { "pattern": "ProcessDefinitionResource", "reason": "Alters the order/email business process graph.", "risk": "critical" },
+        { "pattern": "key-generator-redefinition", "reason": "Changes order/cart code format, affecting ERP correlation and support tooling.", "risk": "high" }
+      ]
+    },
+
+    "occ_web_spring": {
+      "display_name": "OCC Web Wiring / Field-Set Level Mapping",
+      "layer": "api_web",
+      "general_role": "Declares which DTO fields are serialized at BASIC, DEFAULT and FULL levels for each WsDTO class; declares field mappers between data and WsDTO classes; registers OCC filters and validators.",
+      "client_implementation": "Client-specific implementation detected. Field-set mappings defined for product, variant option, product/category search page, order, order entry, order history, cart, user, B2B unit, address, ticket, ticket attachment, media, account summary, sales document type, FAQ component/segment/entry and FAQ search page DTOs; OCC filters merged into the v2 filter chain; a B2B place-order validator aliased over the platform validator.",
+      "generalized_meaning": "Response projection contract.",
+      "business_capability": ["api-visibility-of-populated-fields"],
+      "upstream_dependencies": ["beans_xml", "populator"],
+      "downstream_dependencies": ["frontend_occ_config", "external-api-consumers"],
+      "potential_impact": ["silent-field-blanking-in-ui", "payload-size-and-latency-regression"],
+      "regression_areas": ["every-screen-using-the-endpoint-at-that-level", "payload-size-performance-check"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-frontend-fields-alignment", "regenerate-api-documentation"],
+      "related_configuration": ["frontend_occ_config"],
+      "related_integrations": [],
+      "contract_pair": "frontend_occ_config"
+    },
+
+    "occ_controller": {
+      "display_name": "OCC REST Controller",
+      "layer": "api_web",
+      "general_role": "Spring MVC endpoints under the OCC v2 web module, secured with role annotations, documented via OpenAPI annotations, optionally overriding platform endpoints via request-mapping override with a priority property.",
+      "client_implementation": "Client-specific implementations detected for: identity-provider login/success/logout; SSO token exchange; account summary, statement PDF and sales document types; bill-to and sold-to addresses; cart retrieval and deletion (platform overrides); CMS component retrieval and FAQ search; site/analytics/cookie/shipping configuration; customer creation, removal, login status and organisation-unit switching; invoice PDF; order history in user and organisation scopes, order types and B2B order placement (platform override); cart update / place order; product detail (platform override), recently-viewed products and max order quantity; reorder / cart-from-order (platform override); saved-cart entry deletion; external ticket list/create/read and attachment download; and stock notification subscription.",
+      "generalized_meaning": "Public API surface.",
+      "business_capability": ["storefront-api-contract", "external-integration-api-contract"],
+      "upstream_dependencies": ["facade", "beans_xml", "occ_web_spring", "validator", "occ_filter", "security-roles"],
+      "downstream_dependencies": ["frontend_adapter", "frontend_occ_config", "external-api-consumers", "swagger-contract"],
+      "potential_impact": ["breaking-api-change", "authorisation-regression", "endpoint-override-priority-conflict", "response-shape-change"],
+      "regression_areas": ["endpoint-contract-tests", "owning-frontend-feature", "authorisation-matrix-per-role", "multi-basesite-behaviour"],
+      "deployment_risk": "high",
+      "required_actions": ["coordinate-backend-and-frontend-release", "regenerate-api-documentation"],
+      "related_configuration": ["endpoint-override-priority-properties", "cors-configuration", "oauth-resource-server-settings"],
+      "related_integrations": ["erp-backed-endpoints-inherit-latency-and-availability"],
+      "special_rules": [
+        { "id": "endpoint-priority-override", "statement": "Changing a request-mapping override priority property changes which controller serves a URL with no code diff. Always classify as an API contract change.", "risk": "high" }
+      ]
+    },
+
+    "occ_filter": {
+      "display_name": "OCC Request Filter",
+      "layer": "api_web",
+      "general_role": "Servlet filters merged into the OCC filter chain; establish request context (user, currency, language, site, session attributes) before controllers run.",
+      "client_implementation": "Client-specific implementations detected: an assortment/entitlement filter and a user-context filter, both merged into the OCC v2 filter chain.",
+      "generalized_meaning": "Request pipeline cross-cutting concern.",
+      "business_capability": ["per-request-entitlement-scoping", "user-locale-currency-context", "b2b-data-isolation"],
+      "upstream_dependencies": ["service", "i18n-service", "session-service"],
+      "downstream_dependencies": ["every-occ-request"],
+      "potential_impact": ["cross-organisation-data-leakage", "wrong-currency-or-language-globally", "latency-on-100-percent-of-traffic", "session-contamination"],
+      "regression_areas": ["full-api-smoke-across-users-organisations-sites-currencies-locales", "concurrency-and-session-isolation"],
+      "deployment_risk": "critical",
+      "required_actions": ["security-review", "concurrency-test"],
+      "related_configuration": ["filter-chain-merge-directives", "cors-configuration", "session-properties"],
+      "related_integrations": ["context-flows-into-erp-calls"]
+    },
+
+    "validator": {
+      "display_name": "API Validator",
+      "layer": "api_web",
+      "general_role": "Request/payload validation at the API boundary; rejects invalid input before it reaches services.",
+      "client_implementation": "Client-specific implementation detected: a B2B place-order cart validator extending and aliased over the platform validator.",
+      "generalized_meaning": "API input contract enforcement.",
+      "business_capability": ["checkout-integrity", "error-messaging"],
+      "upstream_dependencies": ["cart-and-order-model-state", "base-store-configuration"],
+      "downstream_dependencies": ["controller-responses", "frontend-error-handling", "frontend_i18n"],
+      "potential_impact": ["loosened-validation-lets-invalid-orders-reach-erp", "tightened-validation-blocks-legitimate-orders", "missing-frontend-message-for-new-error-code"],
+      "regression_areas": ["checkout-happy-path", "all-negative-paths", "frontend-error-message-coverage", "i18n-keys-for-new-error-codes"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-error-message-i18n-coverage"],
+      "related_configuration": ["spring_xml", "backend_i18n"],
+      "related_integrations": ["prevents-malformed-orders-reaching-erp"]
+    },
+
+    "facade": {
+      "display_name": "Facade",
+      "layer": "facade",
+      "general_role": "Orchestration boundary between the web/API layer and the service layer. Converts models to data objects, coordinates services, enforces session/user context. Contains no persistence.",
+      "client_implementation": "Client-specific implementations detected: cart facade, order facade, B2B checkout facade, saved-cart facade, product facade, customer facade, B2B unit facade, account-summary facade, assortment facade, configuration facade, notification facade, customer-ticketing facade, FAQ search facade and suggestion facade. Several are aliased over platform facade bean names.",
+      "generalized_meaning": "Orchestration layer.",
+      "business_capability": ["cart-and-checkout", "order-history-and-details", "product-browsing", "account-and-organisation-management", "financial-account-summary", "assortment-entitlement", "support-ticketing", "content-search"],
+      "upstream_dependencies": ["service", "strategy", "converter", "session-service", "base-store-service", "base-site-service"],
+      "downstream_dependencies": ["occ_controller", "email-contexts", "assisted-service-flows"],
+      "potential_impact": ["changed-response-shape", "changed-error-behaviour", "changed-pagination-or-sorting", "session-context-leak"],
+      "regression_areas": ["capability-end-to-end", "adjacent-journeys-sharing-the-facade"],
+      "deployment_risk": "high",
+      "required_actions": [],
+      "related_configuration": ["spring_xml", "occ_web_spring"],
+      "related_integrations": ["erp-backed-facades-inherit-latency-and-failure-modes"]
+    },
+
+    "service": {
+      "display_name": "Service",
+      "layer": "service",
+      "general_role": "Business capability implementation over the persistence layer. Transaction boundary. Called by facades, jobs, processes, interceptors and other services.",
+      "client_implementation": "Client-specific implementations detected: cart services (platform and commerce variants), place-order cart service, reorder validation service, calculation service, customer service, customer account service, user service, B2B unit service, assortment service, account-summary service, notification service, ticket service, ticket attachment service, delivery service, email service, catalog version service, password policy service, suggestion service, identity-provider customer service, ERP order service, ERP outbound service, and ERP order conversion/mapper/payload/response services.",
+      "generalized_meaning": "Business capability implementation.",
+      "business_capability": ["ordering", "pricing-and-calculation", "cart-lifecycle", "entitlement", "customer-and-organisation-lifecycle", "notifications", "ticketing", "erp-exchange"],
+      "upstream_dependencies": ["dao", "model-service", "flexible-search", "session-service", "configuration-service", "integration-rest-clients"],
+      "downstream_dependencies": ["facade", "cronjob", "process_action", "event_or_listener", "interceptor", "service"],
+      "potential_impact": ["data-correctness", "totals-and-pricing", "transactional-integrity", "performance-on-every-request", "erp-payload-correctness"],
+      "regression_areas": ["capability-plus-batch-jobs-and-processes-using-it"],
+      "deployment_risk": "high",
+      "risk_modifier": { "aliased_over_platform_bean": "high", "custom_only": "medium" },
+      "required_actions": [],
+      "related_configuration": ["spring_xml", "feature-flag-and-threshold-properties"],
+      "related_integrations": ["erp-outbound", "erp-inbound", "identity-provider-api", "destinations-and-credentials"]
+    },
+
+    "dao": {
+      "display_name": "DAO",
+      "layer": "persistence",
+      "general_role": "Encapsulates FlexibleSearch queries and paged search. The only layer that should contain query text.",
+      "client_implementation": "Client-specific implementations detected: customer DAO, customer-invitation DAO, paged ticket DAO, account-summary DAO, assortment DAO, notification DAO, suggestion DAO, plus price criteria and query-provider components that build price-lookup queries dynamically.",
+      "generalized_meaning": "Query layer.",
+      "business_capability": ["retrieval-for-all-capabilities"],
+      "upstream_dependencies": ["items_xml", "search-restrictions", "catalog-version-context"],
+      "downstream_dependencies": ["service", "facade", "occ_controller", "solr-indexer-queries"],
+      "potential_impact": ["wrong-or-missing-results", "performance-regression", "search-restriction-bypass-causing-data-leakage"],
+      "regression_areas": ["listing-search-detail-flows", "pagination-and-sorting", "multi-organisation-data-isolation"],
+      "deployment_risk": "medium",
+      "risk_modifier": { "per_request_or_large_table": "high", "modifies_search_restrictions": "critical" },
+      "required_actions": ["query-plan-review-for-large-tables"],
+      "related_configuration": ["items_xml-indexes", "search-restrictions", "page-size-properties"],
+      "related_integrations": ["feeds-outbound-payloads"],
+      "special_rules": [
+        { "id": "data-isolation", "statement": "Any DAO change that alters or disables search restrictions must be flagged as a data-isolation risk in a B2B multi-organisation model.", "risk": "critical" }
+      ]
+    },
+
+    "populator": {
+      "display_name": "Populator",
+      "layer": "facade",
+      "general_role": "Copies or derives fields from a source model to a target data object. Registered in ordered lists on converters.",
+      "client_implementation": "Client-specific implementations detected for cart, cart entry, cart payment address, order, order entry, order history, grouped order entries, ERP order and ERP order entry, ERP order result, product, product carousel, variant options, variant full, search results (product and price), address, customer, B2B customer, B2B unit, temporary customer, shipping configuration, FAQ and FAQ search page, ticket details/events/parameters, account summary info, saved-cart parameters, facet-search query grouping and exclusion filters, and Solr query decoding.",
+      "generalized_meaning": "Field mapping / projection.",
+      "business_capability": ["what-the-storefront-can-display"],
+      "upstream_dependencies": ["items_xml", "price-service", "stock-service", "media-service", "i18n-and-currency-services"],
+      "downstream_dependencies": ["converter", "occ_controller", "email-contexts", "exports"],
+      "potential_impact": ["missing-or-stale-fields", "n-plus-one-query-latency-regression", "ordering-conflict-when-two-populators-write-the-same-field"],
+      "regression_areas": ["every-surface-using-the-converter"],
+      "deployment_risk": "medium",
+      "required_actions": ["enumerate-all-converter-list-memberships"],
+      "related_configuration": ["spring_xml-populator-lists", "occ_web_spring"],
+      "related_integrations": ["erp-result-populators-translate-external-contracts"]
+    },
+
+    "converter": {
+      "display_name": "Converter",
+      "layer": "facade",
+      "general_role": "Owns a target class and an ordered populator list; produces data objects.",
+      "client_implementation": "Client-specific implementations detected for shipping configuration, ERP order and ERP order details, FAQ search response and FAQ data, Solr search query decoding, search-query pageable, temporary customer, saved-cart parameters and carousel products. Several platform converters have populator lists mutated rather than being replaced.",
+      "generalized_meaning": "DTO assembly definition.",
+      "business_capability": ["dto-assembly"],
+      "upstream_dependencies": ["beans_xml", "populator"],
+      "downstream_dependencies": ["facade", "occ_controller", "email-contexts"],
+      "potential_impact": ["population-order-change", "target-class-change-breaks-consumers", "removing-a-populator-blanks-fields"],
+      "regression_areas": ["all-consumers-of-the-converter"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": ["spring_xml", "beans_xml"],
+      "related_integrations": []
+    },
+
+    "interceptor": {
+      "display_name": "Persistence Interceptor",
+      "layer": "persistence",
+      "general_role": "Hooks into the persistence lifecycle (prepare, validate, load, remove, init) for a registered type. Runs on every save of that type from any source.",
+      "client_implementation": "Client-specific implementations detected: a prepare interceptor and a validate interceptor on the B2B customer type, a validate interceptor on the B2B unit type, and a change interceptor on the stock-level type participating in back-in-stock notification.",
+      "generalized_meaning": "Persistence lifecycle guard / derivation.",
+      "business_capability": ["data-quality-enforcement", "derived-field-maintenance", "event-triggering-on-data-change"],
+      "upstream_dependencies": ["items_xml", "service"],
+      "downstream_dependencies": ["storefront-writes", "occ-writes", "backoffice-edits", "impex-imports", "hot-folder-imports", "integration-inbound", "cronjobs", "patches"],
+      "potential_impact": ["bulk-import-failure", "performance-degradation-on-bulk-writes", "infinite-loop-on-self-triggering-saves"],
+      "regression_areas": ["impex-import", "hot-folder-import", "integration-inbound-replay", "backoffice-editing", "storefront-write-flows", "patch-execution"],
+      "deployment_risk": "high",
+      "required_actions": ["bulk-write-volume-test", "integration-inbound-replay"],
+      "related_configuration": ["spring_xml-interceptor-mapping"],
+      "related_integrations": ["gates-inbound-integration-writes"]
+    },
+
+    "strategy": {
+      "display_name": "Strategy",
+      "layer": "service",
+      "general_role": "Pluggable algorithm behind a service, replacing a specific decision point without replacing the service.",
+      "client_implementation": "Client-specific implementations detected: cart validation strategy, add-to-cart strategy, update-cart-entry strategy, delivery-address lookup strategies (B2B and customer variants), external tax determination strategy, ticket-event email strategy, and price criteria and query-provider strategies.",
+      "generalized_meaning": "Pluggable decision point.",
+      "business_capability": ["cart-integrity", "quantity-limits", "address-eligibility", "tax-determination", "price-resolution", "ticket-notification"],
+      "upstream_dependencies": ["owning-service", "configuration-properties", "b2b-unit-and-user-context"],
+      "downstream_dependencies": ["every-operation-through-the-owning-service"],
+      "potential_impact": ["cart-contents-silently-changed", "add-to-cart-limits-changed", "wrong-delivery-addresses-offered", "wrong-price-selected"],
+      "regression_areas": ["cart-and-checkout-across-organisations-price-lists-and-currencies", "address-selection", "tax-totals"],
+      "deployment_risk": "high",
+      "required_actions": ["financial-correctness-review-for-price-and-cart-strategies"],
+      "related_configuration": ["quantity-limit-properties", "force-in-stock-properties", "base-store-flags", "price-list-and-customer-group-configuration"],
+      "related_integrations": ["erp-price-and-simulation-calls"]
+    },
+
+    "hook": {
+      "display_name": "Hook (Method / Inbound Persistence)",
+      "layer": "service",
+      "general_role": "Extension points registered into platform hook lists: commerce method hooks (place order, add to cart, update cart entry) and integration-services pre/post-persist hooks for inbound payloads.",
+      "client_implementation": "Client-specific implementations detected: a place-order method hook; inbound pre-persist hooks for B2B customer, B2B unit, employee, price row and stock level; an inbound order hook; and a goods-issue persistence hook for the OMS/ERP flow.",
+      "generalized_meaning": "Pipeline extension point.",
+      "business_capability": ["order-placement-side-effects", "inbound-master-data-normalisation-and-enrichment"],
+      "upstream_dependencies": ["integration_object", "payload-contract", "service"],
+      "downstream_dependencies": ["persisted-master-data", "pricing", "assortment", "stock-display", "customer-access"],
+      "potential_impact": ["inbound-feed-rejection", "silent-data-corruption-at-scale", "order-placement-failure", "duplicate-records-on-key-resolution-change"],
+      "regression_areas": ["inbound-payload-replay-per-integration-object", "order-placement", "pricing-after-price-row-load", "stock-display-after-stock-load"],
+      "deployment_risk": "high",
+      "required_actions": ["integration-inbound-replay", "verify-key-resolution"],
+      "related_configuration": ["spring_xml", "integration_object", "inbound-channel-configuration"],
+      "related_integrations": ["all-inbound-objects", "outbound-order-object"]
+    },
+
+    "event_or_listener": {
+      "display_name": "Event / Event Listener",
+      "layer": "service",
+      "general_role": "Decoupled publish/subscribe within the platform. Listeners are singletons; site-aware listeners extend an accelerator site event listener base. Commonly used to start business processes.",
+      "client_implementation": "Client-specific implementations detected for order submitted, order confirmation, order cancelled, order refunded, order completed, order partially cancelled, order partially refunded, delivery message, uncollected-consignment cancelled, customer registration, customer welcome email, order update email, recently-viewed product, recently-ordered product, product viewed and product back-in-stock.",
+      "generalized_meaning": "Asynchronous side-effect trigger.",
+      "business_capability": ["transactional-communications", "personalization-signals", "stock-availability-notifications"],
+      "upstream_dependencies": ["publishing-services-and-strategies", "business-process-service", "model-service"],
+      "downstream_dependencies": ["business_process", "email_template", "customer-inbox", "personalization-data"],
+      "potential_impact": ["duplicate-or-missing-notifications", "throughput-degradation-on-hot-events", "transaction-boundary-surprises"],
+      "regression_areas": ["every-notification-scenario", "high-volume-event-paths-under-load"],
+      "deployment_risk": "medium",
+      "risk_modifier": { "high_frequency_event": "high" },
+      "required_actions": ["verify-listener-error-handling-is-not-silent"],
+      "related_configuration": ["spring_xml-listener-registration", "feature-flag-properties"],
+      "related_integrations": ["smtp", "downstream-analytics"]
+    },
+
+    "business_process": {
+      "display_name": "Business Process Definition",
+      "layer": "service",
+      "general_role": "XML-defined state machine executed by the process engine; actions are Spring beans. Used for order lifecycle and transactional email.",
+      "client_implementation": "Client-specific implementations detected: an ERP order process (order check, payment authorisation check, send to ERP, send status, confirmation status, with failure branches and a notification action) and email processes for customer registration, order confirmation, order update, delivery sent, order cancelled, order refunded, order partially cancelled, order partially refunded, uncollected-consignment cancelled and back-in-stock notification.",
+      "generalized_meaning": "Asynchronous orchestration graph.",
+      "business_capability": ["order-to-erp-transmission", "transactional-customer-communication"],
+      "upstream_dependencies": ["process_action", "email_template", "email-contexts", "erp-outbound-service", "process-parameter-helper"],
+      "downstream_dependencies": ["order-status-visibility", "customer-inbox", "erp-order-creation"],
+      "potential_impact": ["orders-stuck-in-non-terminal-state", "duplicate-or-missing-emails", "orders-never-reaching-erp", "in-flight-processes-orphaned"],
+      "regression_areas": ["full-order-to-cash-including-error-branches", "email-rendering-in-all-locales", "process-restart-and-retry"],
+      "deployment_risk": "critical",
+      "required_actions": ["verify-in-flight-process-instances", "avoid-renaming-node-ids"],
+      "related_configuration": ["spring_xml-process-definition-resource", "email-template-names", "process-engine-properties"],
+      "related_integrations": ["erp-order-interface", "smtp"]
+    },
+
+    "process_action": {
+      "display_name": "Business Process Action",
+      "layer": "service",
+      "general_role": "A single node in a business process graph, implemented as a Spring bean returning a transition name.",
+      "client_implementation": "Client-specific implementations detected: a payment-authorisation check action and an authorisation-failure notification action within the ERP order process; email generation actions bound to named templates.",
+      "generalized_meaning": "Process node implementation.",
+      "business_capability": ["order-lifecycle-step", "email-generation-step"],
+      "upstream_dependencies": ["service", "email-contexts", "model-service"],
+      "downstream_dependencies": ["business_process"],
+      "potential_impact": ["process-takes-wrong-transition", "process-halts", "email-not-generated"],
+      "regression_areas": ["the-owning-process-end-to-end-including-failure-branches"],
+      "deployment_risk": "high",
+      "required_actions": [],
+      "related_configuration": ["spring_xml"],
+      "related_integrations": ["erp-order-interface", "smtp"]
+    },
+
+    "cronjob": {
+      "display_name": "CronJob / Job Performable",
+      "layer": "service",
+      "general_role": "Scheduled or triggered background execution, defined as a job type, a Spring job performable, and job/cronjob/trigger data. Runs on the background-processing node group.",
+      "client_implementation": "Client-specific implementations detected: an identity-provider customer invitation job and a customer deactivation job (with dedicated cron job types carrying connection, tenancy, audience, TTL and rate-limit parameters, plus a run-result item type for audit); platform-derived ticket retention and ticket stagnation cleanup jobs; Solr indexing triggers per store; catalog synchronisation jobs.",
+      "generalized_meaning": "Scheduled background capability.",
+      "business_capability": ["user-lifecycle-automation", "data-retention-and-compliance", "search-freshness", "catalog-publication"],
+      "upstream_dependencies": ["service", "dao", "external-apis", "cronjob-configuration-data"],
+      "downstream_dependencies": ["data-state-consumed-by-storefront"],
+      "potential_impact": ["mass-user-access-change", "mass-data-deletion", "index-staleness-or-corruption", "node-group-saturation"],
+      "regression_areas": ["job-execution-at-production-like-volume", "rate-limit-and-error-paths", "audit-and-result-recording", "idempotency-on-rerun"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-trigger-schedule-and-active-flag", "verify-node-group-assignment", "volume-test"],
+      "related_configuration": ["impex_cronjob", "rate-limit-properties", "cluster-node-groups", "external-endpoint-and-credential-properties"],
+      "related_integrations": ["identity-provider-management-api", "solr", "erp"],
+      "special_rules": [
+        { "id": "trigger-or-retention-change", "statement": "If the diff touches a Trigger row, a retention rule query, or a job batch size, classify as HIGH even if no Java changed.", "risk": "high" }
+      ]
+    },
+
+    "key_generator": {
+      "display_name": "Key Generator",
+      "layer": "service",
+      "general_role": "Generates persistent sequential identifiers with a configured prefix, digit count, start value and template.",
+      "client_implementation": "Client-specific implementation detected: prefixed persistent key generators aliased over the platform order code and cart code generators, driven by properties.",
+      "generalized_meaning": "Identifier format definition.",
+      "business_capability": ["order-and-cart-identity", "erp-correlation", "support-tooling-lookup"],
+      "upstream_dependencies": ["properties_extension", "number-series"],
+      "downstream_dependencies": ["order-codes", "cart-codes", "erp-order-correlation", "customer-communications", "support-search"],
+      "potential_impact": ["breaks-erp-correlation-on-existing-identifiers", "duplicate-or-colliding-codes", "downstream-parsers-break-on-new-format"],
+      "regression_areas": ["order-placement", "order-lookup-in-storefront-and-backoffice", "erp-order-matching"],
+      "deployment_risk": "high",
+      "required_actions": ["confirm-format-change-is-coordinated-with-erp-and-support"],
+      "related_configuration": ["keygen-properties", "number-series-cache-size"],
+      "related_integrations": ["erp-order-interface"]
+    },
+
+    "solr_config": {
+      "display_name": "Solr Search Configuration",
+      "layer": "platform_data",
+      "general_role": "ImpEx-defined facet-search configuration: server, index and search config, indexed types and properties, value providers, indexer queries, sorts, value ranges, search query templates and properties, plus indexing triggers. Bound to base site and base store.",
+      "client_implementation": "Client-specific implementation detected. Two indexed types per store (a product index and an FAQ/content index) share one facet search configuration. Indexed properties cover identity and merchandising fields, category hierarchy fields, multiple image-format fields, stock fields, price and currency fields, and B2B entitlement/pricing dimension fields (assortment include/exclude, price list, customer group, customer hierarchy, sold-to, ship-to, incoterm, sales district, division, user group, generic-price flag). Full and update indexer queries and per-store indexing triggers are defined.",
+      "generalized_meaning": "Search index contract.",
+      "business_capability": ["product-discovery", "category-browsing", "faceted-navigation", "entitlement-aware-search", "price-aware-search", "content-search"],
+      "upstream_dependencies": ["items_xml", "solr_value_provider", "catalog-versions", "base-store-and-site-binding"],
+      "downstream_dependencies": ["plp", "search-results", "facets", "autocomplete", "category-pages", "faq-search", "search-driven-carousels"],
+      "potential_impact": ["index-schema-mismatch-until-reindex", "entitlement-leakage", "facet-and-sort-breakage", "index-size-and-latency-growth", "per-store-divergence"],
+      "regression_areas": ["search-and-plp-per-store-locale-currency", "facet-counts", "entitlement-check-with-two-organisations", "autocomplete", "faq-search"],
+      "deployment_risk": "high",
+      "required_actions": ["import-solr-impex", "full-reindex-per-affected-store"],
+      "related_configuration": ["solr-server-mode", "index-name-prefix-per-store", "indexing-trigger-schedules", "cloud-manifest-solr-location"],
+      "related_integrations": ["product-price-stock-and-assortment-arrive-from-erp"]
+    },
+
+    "solr_value_provider": {
+      "display_name": "Solr Field Value Provider",
+      "layer": "facade",
+      "general_role": "Computes the value written into a Solr indexed field for each indexed item.",
+      "client_implementation": "Client-specific implementations detected for assortment include/exclude, price list, customer group, customer hierarchy, sold-to, ship-to, incoterm, sales district, division, user group, currency and generic-price-flag dimensions.",
+      "generalized_meaning": "Index field computation.",
+      "business_capability": ["entitlement-aware-search", "price-aware-search", "faceting-dimensions"],
+      "upstream_dependencies": ["items_xml", "service", "dao"],
+      "downstream_dependencies": ["solr_config", "plp", "facets", "search-filters"],
+      "potential_impact": ["entitlement-leakage", "wrong-facet-values", "indexing-performance-degradation", "indexing-failure"],
+      "regression_areas": ["reindex-and-verify-field-values", "entitlement-isolation-across-organisations", "facet-counts"],
+      "deployment_risk": "high",
+      "required_actions": ["full-reindex-per-affected-store"],
+      "related_configuration": ["spring_xml", "solr_config"],
+      "related_integrations": []
+    },
+
+    "cms_component_type": {
+      "display_name": "CMS Component Type",
+      "layer": "persistence",
+      "general_role": "Content type defined in items.xml extending a CMS component base type, exposed through the CMS OCC API, rendered by a frontend component and authored in SmartEdit/Backoffice.",
+      "client_implementation": "Client-specific implementations detected: an FAQ container type, FAQ segment type, FAQ entry type, a forms container type related to banner components, and an extension of the standard product-carousel component.",
+      "generalized_meaning": "Content model type.",
+      "business_capability": ["page-composition", "self-service-help-content", "marketing-content"],
+      "upstream_dependencies": ["items_xml", "cms-occ-adapters"],
+      "downstream_dependencies": ["frontend_feature_registry", "smartedit-authoring", "cms-occ-response-shape", "layout-slot-configuration"],
+      "potential_impact": ["unmapped-type-renders-nothing", "smartedit-authoring-broken-for-the-type"],
+      "regression_areas": ["page-rendering-per-template-and-market", "smartedit-authoring", "content-sync"],
+      "deployment_risk": "high",
+      "required_actions": ["add-frontend-cms-mapping", "catalog-synchronisation", "verify-smartedit-decoration"],
+      "related_configuration": ["cms_content", "frontend_feature_registry"],
+      "related_integrations": []
+    },
+
+    "cms_content": {
+      "display_name": "CMS Content (ImpEx)",
+      "layer": "platform_data",
+      "general_role": "Content instances imported into content catalogs, per market and per language.",
+      "client_implementation": "Client-specific implementation detected: content catalogs per market with localized content ImpEx per supported language, plus email content per market.",
+      "generalized_meaning": "Content instances.",
+      "business_capability": ["marketing-content", "navigation", "footer", "banners", "page-composition"],
+      "upstream_dependencies": ["cms_component_type", "content-catalog-and-version", "page-templates", "content-slots"],
+      "downstream_dependencies": ["rendered-pages", "smartedit-authoring"],
+      "potential_impact": ["content-not-visible-until-sync", "per-market-divergence", "missing-localized-variant"],
+      "regression_areas": ["page-rendering-per-market-and-language", "content-sync"],
+      "deployment_risk": "medium",
+      "required_actions": ["catalog-synchronisation-staged-to-online"],
+      "related_configuration": ["layout-slot-configuration"],
+      "related_integrations": []
+    },
+
+    "impex_general": {
+      "display_name": "ImpEx Data",
+      "layer": "platform_data",
+      "general_role": "Declarative data import/update language executed at system setup, from patches, from hot folders, or manually. Mutates data, not schema.",
+      "client_implementation": "Client-specific implementation detected, organised into common essential data, security data, integration setup, per-store data, catalog data, CMS content and email content, partitioned across a base data extension and per-phase rollout extensions.",
+      "generalized_meaning": "Environment data state.",
+      "business_capability": ["configuration-driven-capabilities"],
+      "upstream_dependencies": ["items_xml", "referenced-items", "catalog-version-context"],
+      "downstream_dependencies": ["runtime-behaviour-of-configured-features"],
+      "potential_impact": ["non-idempotent-execution-destroys-or-duplicates-data", "header-attribute-break-after-items-change", "inconsistent-localized-application", "encoding-or-delimiter-corruption"],
+      "regression_areas": ["idempotency-double-run", "all-store-and-language-variants", "dependent-runtime-behaviour"],
+      "deployment_risk": "high",
+      "required_actions": ["idempotency-check", "verify-complete-file-family"],
+      "related_configuration": ["system_setup", "patch", "hot_folder_config"],
+      "related_integrations": [],
+      "sub_types": {
+        "impex_security": { "risk": "critical", "reason": "Access outage or privilege escalation, immediately and globally." },
+        "impex_integration": { "risk": "critical", "reason": "Integration outage; contains credential material." },
+        "integration_object": { "risk": "critical", "reason": "Cross-system contract; requires external release coordination." },
+        "impex_cronjob": { "risk": "high", "reason": "Job schedule and retention rules; can be destructive." },
+        "solr_config": { "risk": "high", "reason": "Requires full reindex." },
+        "impex_store": { "risk": "high", "reason": "Site and store wiring." },
+        "cms_content": { "risk": "medium", "reason": "Requires catalog synchronisation." },
+        "impex_catalog": { "risk": "medium", "reason": "Requires catalog synchronisation." },
+        "reference_data": { "risk": "low", "reason": "Countries, delivery modes, themes." }
+      }
+    },
+
+    "impex_security": {
+      "display_name": "Security ImpEx (User Groups, Access Rights, Roles)",
+      "layer": "platform_data",
+      "general_role": "Defines user groups, type and attribute-level access rights, and security roles.",
+      "client_implementation": "Client-specific implementation detected: extensive user group, access right and security role definitions, partitioned per rollout phase and heavily localized.",
+      "generalized_meaning": "Authorisation model data.",
+      "business_capability": ["data-isolation-between-organisations-and-markets", "least-privilege-administration", "customer-self-service-boundaries"],
+      "upstream_dependencies": ["items_xml", "identity-provider-group-claims", "sso-attribute-mapping"],
+      "downstream_dependencies": ["every-read-and-write-path-in-every-channel"],
+      "potential_impact": ["privilege-escalation", "access-outage"],
+      "regression_areas": ["authorisation-matrix-per-role-across-occ-backoffice-smartedit", "cross-organisation-data-isolation", "login-for-each-identity-type"],
+      "deployment_risk": "critical",
+      "required_actions": ["mandatory-human-security-review"],
+      "related_configuration": ["sso-mapping-properties", "oauth-client-registrations", "cors"],
+      "related_integrations": ["identity-provider", "saml-metadata-and-keystore"]
+    },
+
+    "integration_object": {
+      "display_name": "Integration Object / Inbound Channel / Outbound Destination",
+      "layer": "integration",
+      "general_role": "Integration API definitions mapping item types and attributes into an exposed structure; inbound channels expose them for writes with an authentication type; outbound destinations, consumed credentials and endpoints define where data is sent.",
+      "client_implementation": "Client-specific implementation detected: inbound objects for B2B unit, B2B customer, customer update, employee, variant product, price row, discount row, stock level, listings/exclusions and OMS order; an outbound order object; an integration service account and client-credentials registration; ERP endpoints for customer replication, order creation, order simulation, order history, account/statement and billing; ERP logical system, sales organisation, plant, distribution-channel and division mappings; and a delivery-mode mapping.",
+      "generalized_meaning": "Cross-system data contract.",
+      "business_capability": ["master-data-synchronisation", "order-transmission", "order-status-and-history", "financial-documents", "price-simulation"],
+      "upstream_dependencies": ["items_xml", "hook", "credentials-and-destination-properties"],
+      "downstream_dependencies": ["pricing", "assortment", "stock-display", "customer-access", "order-history", "account-summary"],
+      "potential_impact": ["bidirectional-breakage", "required-attribute-rejects-existing-payloads", "removed-attribute-silently-drops-data", "credential-or-destination-change-causes-outage", "auth-type-change-breaks-caller"],
+      "regression_areas": ["payload-replay-positive-and-negative-per-object", "outbound-payload-vs-erp-contract", "error-handling-and-retry", "end-to-end-order-to-erp", "order-history-and-account-summary-retrieval"],
+      "deployment_risk": "critical",
+      "required_actions": ["coordinate-with-middleware-and-erp-release", "replay-payload-set", "secret-handling-review"],
+      "related_configuration": ["endpoint-url-properties", "client-credential-properties", "oauth-url-properties", "logical-system-and-org-mappings", "outbound-sync-jobs", "webhook-configuration", "rest-template-strategy-lists"],
+      "related_integrations": ["scpi", "s4-order-management", "oms"],
+      "special_rules": [
+        { "id": "secret-redaction", "statement": "Diffs touching integration credential rows, destination URLs or client-credentials registrations must be flagged for secret-handling review and never echoed into generated output.", "risk": "critical" }
+      ]
+    },
+
+    "hot_folder_config": {
+      "display_name": "Hot Folder / Batch Import Configuration",
+      "layer": "integration",
+      "general_role": "Spring-integration file pipelines that watch a folder, convert rows into ImpEx via converter beans, and import them.",
+      "client_implementation": "Client-specific implementation detected: a shared media/catalog converter set (media, media container, product media) plus per-store hot-folder pipelines.",
+      "generalized_meaning": "Batch data ingestion pipeline.",
+      "business_capability": ["bulk-catalog-media-and-master-data-loading"],
+      "upstream_dependencies": ["impex-header-templates", "catalog-version", "media-formats"],
+      "downstream_dependencies": ["catalog-content", "product-imagery"],
+      "potential_impact": ["whole-batch-failure-on-malformed-generated-impex", "media-orphaning-on-format-change", "per-store-pipeline-divergence"],
+      "regression_areas": ["representative-file-per-pipeline", "media-format-resolution", "failure-retry-and-error-file-handling"],
+      "deployment_risk": "high",
+      "required_actions": ["run-representative-batch-in-lower-environment"],
+      "related_configuration": ["cloud-hot-folder-feature-flag", "storage-container-configuration", "media-format-definitions"],
+      "related_integrations": ["upstream-pim-and-dam-feeds"]
+    },
+
+    "patch": {
+      "display_name": "Patch (Versioned Data Migration)",
+      "layer": "platform_data",
+      "general_role": "Release-scoped, ordered, idempotent data migration. Each patch declares a release, an id and a set of actions (ImpEx import, Groovy execution, catalog sync, Solr indexing, Excel import). Execution state is tracked per environment.",
+      "client_implementation": "Client-specific implementation detected: multiple releases containing patches for content catalog updates, per-market content, global header changes, product catalog updates, per-store shipping configuration, per-store Solr configuration, FAQ naming and redirection, language updates, OCC/OAuth configuration, SmartEdit core configuration, consent component cleanup, out-of-the-box data cleanup, media conversion, digital payment, account summary and catalog synchronisation updates. Shared action base classes cover sync, import, Groovy, Solr indexing and Excel import.",
+      "generalized_meaning": "Versioned, environment-tracked data migration.",
+      "business_capability": ["controlled-configuration-and-content-evolution-across-environments"],
+      "upstream_dependencies": ["patch-action-beans", "impex-or-groovy-resources", "catalogs", "solr_config"],
+      "downstream_dependencies": ["environment-data-state"],
+      "potential_impact": ["runs-once-per-environment-and-cannot-be-rerun", "ordering-between-patches-matters", "long-execution-window-when-syncing-or-indexing"],
+      "regression_areas": ["execute-in-production-like-environment-first", "verify-configuration-changed", "verify-patch-state-tracking", "confirm-no-double-execution"],
+      "deployment_risk": "high",
+      "required_actions": ["confirm-release-and-patch-id-ordering", "run-patches", "verify-execution-state-per-environment", "prepare-compensating-patch-plan"],
+      "related_configuration": ["patch-framework-enablement", "patches-backoffice-extension"],
+      "related_integrations": ["patches-that-rewrite-integration-configuration-change-live-endpoints"]
+    },
+
+    "system_setup": {
+      "display_name": "System Setup / Data Import Service",
+      "layer": "platform_data",
+      "general_role": "Annotated setup classes running at initialization and update, importing essential data (always) and project data (on demand). Core and sample data import services resolve which files to load per store.",
+      "client_implementation": "Client-specific implementations detected: a core system setup importing essential reference data, security data, cron jobs, integration setup and CMS updates; project-data setup importing integration object definitions and security data; and per-extension initial and phase data setups with customised core-data and sample-data import services and a customised catalog sync job service.",
+      "generalized_meaning": "Bootstrap orchestration.",
+      "business_capability": ["environment-provisioning-and-repeatability"],
+      "upstream_dependencies": ["impex_general", "catalog-and-sync-configuration"],
+      "downstream_dependencies": ["environment-data-state"],
+      "potential_impact": ["essential-data-runs-on-every-update-in-every-environment", "import-ordering-determines-success"],
+      "regression_areas": ["full-system-update-on-production-like-copy", "idempotency-across-repeated-updates"],
+      "deployment_risk": "high",
+      "required_actions": ["confirm-behaviour-on-every-system-update"],
+      "related_configuration": ["import-path-properties", "system-setup-failure-behaviour"],
+      "related_integrations": ["integration-object-definitions-imported-here"]
+    },
+
+    "backoffice_config": {
+      "display_name": "Backoffice Configuration",
+      "layer": "admin",
+      "general_role": "Defines list, editor and search views per type in the administration UI.",
+      "client_implementation": "Client-specific implementation detected alongside custom widgets, editors, renderers and a site-scoped security model.",
+      "generalized_meaning": "Administrative UI configuration.",
+      "business_capability": ["content-catalog-order-customer-and-configuration-administration"],
+      "upstream_dependencies": ["items_xml"],
+      "downstream_dependencies": ["admin-workflows"],
+      "potential_impact": ["missing-editors-for-new-attributes", "broken-perspective"],
+      "regression_areas": ["editing-each-affected-type", "per-role-and-per-site-visibility"],
+      "deployment_risk": "medium",
+      "required_actions": ["restart-backoffice-aspect", "reset-backoffice-cache-if-configured"],
+      "related_configuration": ["backoffice-cache-and-reset-properties"],
+      "related_integrations": []
+    },
+
+    "backoffice_widget": {
+      "display_name": "Backoffice Widget / Action / Editor / Renderer",
+      "layer": "admin",
+      "general_role": "Custom administration UI extensions declared via widget definitions and Spring wiring.",
+      "client_implementation": "Client-specific implementations detected: a fulfilment action widget, a principal-permission action widget, a custom enum editor and a currency list renderer.",
+      "generalized_meaning": "Administrative UI extension.",
+      "business_capability": ["operational-admin-actions"],
+      "upstream_dependencies": ["items_xml", "service"],
+      "downstream_dependencies": ["admin-workflows"],
+      "potential_impact": ["widget-errors-break-a-perspective"],
+      "regression_areas": ["the-custom-actions", "the-perspectives-containing-them"],
+      "deployment_risk": "medium",
+      "required_actions": ["restart-backoffice-aspect"],
+      "related_configuration": [],
+      "related_integrations": []
+    },
+
+    "backoffice_spring": {
+      "display_name": "Backoffice Security / Wiring",
+      "layer": "admin",
+      "general_role": "Wires Backoffice services including authentication providers, user detail services and role/site scoping.",
+      "client_implementation": "Client-specific implementations detected: a site-scoped role service, user-details service, authentication provider and site-assignment helper tied to a role-to-site relation.",
+      "generalized_meaning": "Administrative access control.",
+      "business_capability": ["who-can-administer-which-markets"],
+      "upstream_dependencies": ["items_xml-role-site-relation", "sso-authentication"],
+      "downstream_dependencies": ["admin-visibility-and-permissions"],
+      "potential_impact": ["admin-lockout", "over-privileging-across-markets"],
+      "regression_areas": ["admin-login-via-sso", "per-role-and-per-site-visibility"],
+      "deployment_risk": "high",
+      "required_actions": ["security-review"],
+      "related_configuration": ["sso-group-mapping-properties"],
+      "related_integrations": ["identity-provider-group-mapping"]
+    },
+
+    "smartedit_config": {
+      "display_name": "SmartEdit Configuration",
+      "layer": "admin",
+      "general_role": "In-context content authoring, requiring the SmartEdit extension set, CMS/SmartEdit web services, preview and permission services, and correct CORS/allow-origin configuration.",
+      "client_implementation": "Client-specific implementation detected: SmartEdit and personalization webapps deployed on the Backoffice and API aspects; SmartEdit core configuration applied through the patch framework; the storefront enables the SmartEdit module.",
+      "generalized_meaning": "In-context authoring channel.",
+      "business_capability": ["business-user-content-editing"],
+      "upstream_dependencies": ["cms-webservices", "preview-webservices", "permission-webservices", "cms_component_type", "frontend-smartedit-module", "cors-configuration"],
+      "downstream_dependencies": ["content-authoring-productivity"],
+      "potential_impact": ["authoring-outage-due-to-cors-allow-origin-or-preview-ticket-configuration", "new-component-types-not-editable"],
+      "regression_areas": ["open-a-page-in-smartedit-per-market", "edit-each-customised-component-type", "preview-and-personalization"],
+      "deployment_risk": "medium",
+      "required_actions": ["verify-cors-and-allow-origin"],
+      "related_configuration": ["cors-filters", "allow-origin-lists", "webapp-context-paths", "frontend-smartedit-module"],
+      "related_integrations": []
+    },
+
+    "email_template": {
+      "display_name": "Email Template",
+      "layer": "platform_data",
+      "general_role": "Velocity templates rendering subject and body for transactional emails, driven by an email context object.",
+      "client_implementation": "Client-specific implementation detected: templates for customer registration, order confirmation, delivery sent, order cancelled, order refunded, order partially cancelled, order partially refunded, uncollected-consignment cancelled, collection reminder, order moved to customer service, stock notification, verification token, plus reusable CMS component templates.",
+      "generalized_meaning": "Customer communication rendering.",
+      "business_capability": ["transactional-customer-communication"],
+      "upstream_dependencies": ["email-contexts", "converter", "populator", "backend_i18n"],
+      "downstream_dependencies": ["customer-inbox"],
+      "potential_impact": ["rendering-failure", "missing-context-variables", "broken-links", "locale-specific-rendering-defects"],
+      "regression_areas": ["render-each-affected-email-in-every-supported-locale", "verify-links-and-context-variables"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": ["email-content-impex", "process-generate-email-action-template-names"],
+      "related_integrations": ["smtp"]
+    },
+
+    "properties_extension": {
+      "display_name": "Extension Properties",
+      "layer": "configuration",
+      "general_role": "Extension-level default configuration keys.",
+      "client_implementation": "Client-specific implementation detected: keys governing OCC endpoint override priorities, quantity limits, page sizes, recently-viewed and recently-ordered limits, key generator formats, Solr server mode, facet limits, audit toggles, exception-handling behaviour, and identity-provider locale fallbacks per market.",
+      "generalized_meaning": "Runtime configuration defaults.",
+      "business_capability": ["feature-toggles", "limits", "formats"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["any-bean-or-controller-reading-the-key"],
+      "potential_impact": ["endpoint-priority-flip", "behaviour-differs-per-environment"],
+      "regression_areas": ["verify-key-present-in-every-persona-and-aspect-file", "verify-defaults"],
+      "deployment_risk": "medium",
+      "risk_modifier": { "endpoint_override_priority": "high", "cors_or_security": "critical", "credential_or_endpoint": "critical" },
+      "required_actions": ["restart-affected-aspects"],
+      "related_configuration": ["properties_environment", "cloud_manifest"],
+      "related_integrations": ["endpoint-urls-and-credentials"]
+    },
+
+    "properties_environment": {
+      "display_name": "Environment / Persona / Aspect Properties",
+      "layer": "configuration",
+      "general_role": "Per-persona (development/staging/production) and per-aspect configuration resolved by the cloud deployment descriptor.",
+      "client_implementation": "Client-specific implementation detected: a base cloud property file plus per-persona files and a storefront-aspect file, mapped in the deployment descriptor.",
+      "generalized_meaning": "Environment-specific configuration.",
+      "business_capability": ["environment-behaviour-differentiation"],
+      "upstream_dependencies": ["cloud_manifest-property-mapping"],
+      "downstream_dependencies": ["runtime-behaviour-per-environment"],
+      "potential_impact": ["works-in-lower-environment-fails-in-production", "credential-exposure-if-placed-in-the-wrong-file"],
+      "regression_areas": ["verify-resolution-per-persona-and-aspect"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-property-present-for-every-persona-that-needs-it", "restart-affected-aspects", "secret-handling-review"],
+      "related_configuration": ["cloud_manifest"],
+      "related_integrations": ["endpoint-urls-and-credentials"]
+    },
+
+    "cloud_manifest": {
+      "display_name": "Cloud Deployment Descriptor",
+      "layer": "configuration",
+      "general_role": "Declares the Commerce version, extension packs, additional extensions, Solr configuration location, property mapping per persona and aspect, aspect definitions, and the webapps and context paths each aspect serves.",
+      "client_implementation": "Client-specific implementation detected: four aspects with explicit webapp and context-path lists, per-persona and per-aspect property mapping, a checked-in Solr cloud configuration, and language packs declared as a property.",
+      "generalized_meaning": "Infrastructure and topology definition.",
+      "business_capability": ["what-runs-where", "availability-and-scaling"],
+      "upstream_dependencies": ["extension_set"],
+      "downstream_dependencies": ["build", "deploy", "routing", "runtime-topology"],
+      "potential_impact": ["build-failure", "endpoint-unreachable-when-a-webapp-is-removed-from-an-aspect", "solr-configuration-mismatch", "property-unresolved-for-a-persona", "platform-version-regression"],
+      "regression_areas": ["full-build", "deploy-to-lower-environment", "reachability-of-every-declared-context-path", "environment-specific-property-resolution"],
+      "deployment_risk": "critical",
+      "required_actions": ["full-build-and-deploy", "verify-all-context-paths"],
+      "related_configuration": ["properties_environment", "extension_set", "solr-configuration-directory"],
+      "related_integrations": ["aspect-assignment-determines-integration-and-background-nodes"]
+    },
+
+    "extension_set": {
+      "display_name": "Extension Activation Set",
+      "layer": "configuration",
+      "general_role": "Declares which extensions are loaded, determining the bean graph, type system and webapp availability.",
+      "client_implementation": "Client-specific implementation detected: a curated set spanning core commerce, Backoffice, SmartEdit, OCC, Solr and adaptive search, B2B, order management, SCPI/integration, customer service, security, patches and the custom extension family.",
+      "generalized_meaning": "System composition.",
+      "business_capability": ["which-capabilities-exist-at-all"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["bean-graph", "type-system", "webapp-availability", "build-output"],
+      "potential_impact": ["missing-beans-at-startup", "type-system-change", "webapp-disappears"],
+      "regression_areas": ["full-build", "full-environment-deploy", "full-smoke"],
+      "deployment_risk": "critical",
+      "required_actions": ["full-build-and-deploy", "system-update"],
+      "related_configuration": ["cloud_manifest", "extension_dependency"],
+      "related_integrations": ["integration-extension-groups"]
+    },
+
+    "extension_dependency": {
+      "display_name": "Extension Dependency Declaration",
+      "layer": "configuration",
+      "general_role": "Declares which extensions an extension requires, determining load order and bean availability.",
+      "client_implementation": "Client-specific implementation detected across the custom extension family.",
+      "generalized_meaning": "Build and load ordering.",
+      "business_capability": ["module-composition"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["load-order", "bean-availability", "build-graph"],
+      "potential_impact": ["circular-dependency", "beans-unavailable-at-context-load", "build-failure"],
+      "regression_areas": ["full-build", "context-startup-on-all-aspects"],
+      "deployment_risk": "high",
+      "required_actions": ["full-build"],
+      "related_configuration": ["extension_set"],
+      "related_integrations": []
+    },
+
+    "frontend_occ_config": {
+      "display_name": "Frontend OCC Endpoint & Site Context Configuration",
+      "layer": "frontend",
+      "general_role": "Declares the OCC base URL, the endpoint template and field projection for every backend call, the site context (base sites, currencies, languages, URL parameters), i18n chunk loading and feature level.",
+      "client_implementation": "Client-specific implementation detected: endpoint overrides for product search and detail variants, cart and carts, invoice PDF, notification subscription, saved-cart entry deletion, bill-to and sold-to addresses, sold-to list, ticket categories/create/detail/messages/attachments, external tickets, order history, organisation orders, order types, home account summary, cart update, shipping configuration, organisation-unit switching, max order quantity, recently-viewed products and site configuration. Site context enumerates all supported base sites, currencies and languages for the rollout.",
+      "generalized_meaning": "Frontend half of the API contract.",
+      "business_capability": ["every-network-call-the-storefront-makes", "market-locale-currency-matrix"],
+      "upstream_dependencies": ["occ_controller", "occ_web_spring"],
+      "downstream_dependencies": ["every-frontend-feature"],
+      "potential_impact": ["contract-drift-producing-silent-nulls", "new-market-unreachable", "runtime-404-from-wrong-path"],
+      "regression_areas": ["smoke-every-endpoint-touched", "verify-each-new-site-currency-language-end-to-end", "verify-fields-alignment-against-backend-field-sets"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-backend-field-set-alignment"],
+      "related_configuration": ["occ_web_spring", "impex_store", "frontend_i18n"],
+      "related_integrations": [],
+      "contract_pair": "occ_web_spring"
+    },
+
+    "frontend_feature_registry": {
+      "display_name": "Frontend Feature Registry / CMS Mapping",
+      "layer": "frontend",
+      "general_role": "Maps backend CMS component types to Angular components and registers lazily-loaded feature modules and DI provider swaps.",
+      "client_implementation": "Client-specific implementation detected: roughly two dozen lazily-loaded feature modules mapping CMS component types across home page, product listing, search, product detail, cart, saved carts, quick order, import/export, checkout, order confirmation, order history and detail, address book, profile, account summary, support tickets, FAQ, forms, sitemap, navigation, footer, breadcrumb, manage account and customer login; plus adapter DI provider registrations.",
+      "generalized_meaning": "CMS-to-UI binding and code-splitting boundary.",
+      "business_capability": ["which-ui-renders-for-each-authored-component"],
+      "upstream_dependencies": ["cms_component_type", "cms_content"],
+      "downstream_dependencies": ["rendered-pages", "bundle-size", "lazy-chunk-boundaries"],
+      "potential_impact": ["blank-slot-for-unmapped-component-type", "ambiguous-duplicate-mapping", "bundle-size-and-time-to-interactive-change"],
+      "regression_areas": ["visual-regression-per-page-template-and-market", "lazy-chunk-loading", "bundle-size-budget"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": ["layout-slot-configuration", "feature-toggle-level"],
+      "related_integrations": []
+    },
+
+    "frontend_module": {
+      "display_name": "Frontend Feature Module",
+      "layer": "frontend",
+      "general_role": "Angular module declaring components and mapping CMS component types.",
+      "client_implementation": "Client-specific implementations detected across all custom features.",
+      "generalized_meaning": "Frontend feature boundary.",
+      "business_capability": ["feature-composition"],
+      "upstream_dependencies": ["frontend_component", "frontend_service"],
+      "downstream_dependencies": ["rendered-pages"],
+      "potential_impact": ["component-not-declared-or-not-mapped", "circular-module-imports"],
+      "regression_areas": ["the-owning-feature"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": ["frontend_feature_registry"],
+      "related_integrations": []
+    },
+
+    "frontend_adapter": {
+      "display_name": "Frontend Adapter",
+      "layer": "frontend",
+      "general_role": "Performs the HTTP call using configured OCC endpoints and maps the response.",
+      "client_implementation": "Client-specific implementations detected for order history, home account summary, quick order, cart update, shipping configuration, organisation orders, saved carts, logout, base product, support tickets, sold-to selection, max order quantity, address book and chatbot.",
+      "generalized_meaning": "Frontend data access.",
+      "business_capability": ["feature-data-retrieval-and-mutation"],
+      "upstream_dependencies": ["frontend_occ_config", "occ_controller", "frontend_model"],
+      "downstream_dependencies": ["frontend_connector", "frontend_service", "frontend_component"],
+      "potential_impact": ["response-shape-mismatch-causing-runtime-undefined", "missing-error-handling", "di-provider-swap-changes-implementation-globally"],
+      "regression_areas": ["owning-feature-end-to-end-including-error-and-empty-states"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": ["frontend_occ_config", "frontend_feature_registry"],
+      "related_integrations": ["inherits-erp-latency-for-erp-backed-endpoints"]
+    },
+
+    "frontend_connector": {
+      "display_name": "Frontend Connector",
+      "layer": "frontend",
+      "general_role": "Injectable seam between service and adapter.",
+      "client_implementation": "Client-specific implementations detected paired with each custom adapter.",
+      "generalized_meaning": "Frontend DI seam.",
+      "business_capability": ["feature-data-access-indirection"],
+      "upstream_dependencies": ["frontend_adapter"],
+      "downstream_dependencies": ["frontend_service"],
+      "potential_impact": ["broken-injection-chain"],
+      "regression_areas": ["owning-feature"],
+      "deployment_risk": "low",
+      "required_actions": [],
+      "related_configuration": [],
+      "related_integrations": []
+    },
+
+    "frontend_service": {
+      "display_name": "Frontend Service",
+      "layer": "frontend",
+      "general_role": "Exposes state and operations to components, often over reactive state management.",
+      "client_implementation": "Client-specific implementations detected for context initialisation, cookie settings, analytics collection and configuration, CSV export, invoice PDF retrieval, ticket categories, global error handling, and per-feature data services.",
+      "generalized_meaning": "Frontend state and orchestration.",
+      "business_capability": ["feature-state-management"],
+      "upstream_dependencies": ["frontend_connector", "frontend_model"],
+      "downstream_dependencies": ["frontend_component"],
+      "potential_impact": ["stale-or-inconsistent-state", "memory-leaks-from-unmanaged-subscriptions", "duplicate-network-calls"],
+      "regression_areas": ["owning-feature", "navigation-between-screens-sharing-the-service"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": [],
+      "related_integrations": []
+    },
+
+    "frontend_component": {
+      "display_name": "Frontend Component",
+      "layer": "frontend",
+      "general_role": "Presentation and interaction, bound to CMS data and feature services.",
+      "client_implementation": "Client-specific implementations detected across home page, product listing and search, product detail (including scaled-price table, quantity control, cart actions, card and table views), cart and saved carts, single-step checkout, order confirmation, order history and detail, account summary, address book, profile, support tickets, FAQ, forms, sitemap, navigation, footer, breadcrumb, customer login, multiple sold-to selection, quick order, export, spinner, chatbot and error surfaces.",
+      "generalized_meaning": "UI unit.",
+      "business_capability": ["user-visible-product"],
+      "upstream_dependencies": ["frontend_service", "cms_content", "frontend_i18n", "frontend_style"],
+      "downstream_dependencies": ["other-components-importing-it", "visual-regression-baselines"],
+      "potential_impact": ["visual-and-behavioural-regression", "accessibility-regression", "raw-i18n-keys-displayed", "performance-regression-on-list-heavy-views"],
+      "regression_areas": ["the-screen", "every-screen-reusing-the-component", "responsive-breakpoints", "supported-locales"],
+      "deployment_risk": "low",
+      "risk_modifier": { "shared_or_reusable": "medium", "checkout_component": "high" },
+      "required_actions": [],
+      "related_configuration": ["frontend_i18n", "layout-slot-configuration"],
+      "related_integrations": []
+    },
+
+    "frontend_guard": {
+      "display_name": "Frontend Route Guard",
+      "layer": "frontend",
+      "general_role": "Controls navigation and authentication state before route activation.",
+      "client_implementation": "Client-specific implementations detected: an authentication-state service and a login-redirect guard.",
+      "generalized_meaning": "Frontend access control.",
+      "business_capability": ["route-level-access-control"],
+      "upstream_dependencies": ["auth-state"],
+      "downstream_dependencies": ["every-guarded-route"],
+      "potential_impact": ["redirect-loop", "lockout", "unauthenticated-access-to-protected-routes"],
+      "regression_areas": ["authenticated-and-anonymous-navigation-across-all-guarded-routes", "deep-links"],
+      "deployment_risk": "high",
+      "required_actions": ["security-review"],
+      "related_configuration": [],
+      "related_integrations": ["identity-provider"]
+    },
+
+    "frontend_interceptor": {
+      "display_name": "Frontend HTTP Interceptor",
+      "layer": "frontend",
+      "general_role": "Global HTTP request/response handling: error mapping, headers, retries.",
+      "client_implementation": "Client-specific implementation detected: a global error interceptor.",
+      "generalized_meaning": "Frontend cross-cutting HTTP concern.",
+      "business_capability": ["error-experience", "global-request-decoration"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["every-http-call"],
+      "potential_impact": ["swallowed-or-double-handled-errors", "incorrect-headers-on-all-requests", "latency-on-all-calls"],
+      "regression_areas": ["error-scenarios-401-403-500-network", "all-features-making-http-calls"],
+      "deployment_risk": "high",
+      "required_actions": [],
+      "related_configuration": [],
+      "related_integrations": []
+    },
+
+    "frontend_root_module": {
+      "display_name": "Frontend Root Module",
+      "layer": "frontend",
+      "general_role": "Bootstraps the application, registers global providers, route overrides, checkout step configuration, interceptors and initializers.",
+      "client_implementation": "Client-specific implementation detected: registers a global error interceptor, an application initializer establishing site context before bootstrap, a custom search page meta resolver, route overrides for the product path and a single-step checkout route, a collapsed single-step checkout configuration, analytics configuration and dialog configuration.",
+      "generalized_meaning": "Application composition root.",
+      "business_capability": ["global-frontend-behaviour"],
+      "upstream_dependencies": ["frontend_module", "frontend_occ_config"],
+      "downstream_dependencies": ["entire-frontend"],
+      "potential_impact": ["bootstrap-failure", "global-provider-change-affecting-all-features", "route-structure-change-breaking-deep-links-and-seo", "checkout-step-restructure"],
+      "regression_areas": ["full-frontend-smoke", "deep-links-and-legacy-urls", "checkout-flow"],
+      "deployment_risk": "high",
+      "required_actions": [],
+      "related_configuration": ["frontend_occ_config"],
+      "related_integrations": []
+    },
+
+    "frontend_i18n": {
+      "display_name": "Frontend Translations",
+      "layer": "frontend",
+      "general_role": "Localized text chunks loaded per language with a fallback language.",
+      "client_implementation": "Client-specific implementation detected: chunked translations per supported language with a fallback.",
+      "generalized_meaning": "Localization assets.",
+      "business_capability": ["localized-user-experience"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["frontend_component"],
+      "potential_impact": ["raw-keys-visible", "layout-overflow-in-long-text-locales", "missing-locale-variant"],
+      "regression_areas": ["every-supported-locale-of-the-affected-screens"],
+      "deployment_risk": "low",
+      "required_actions": ["verify-complete-locale-family"],
+      "related_configuration": [],
+      "related_integrations": []
+    },
+
+    "frontend_dependencies": {
+      "display_name": "Frontend Dependency Manifest",
+      "layer": "frontend",
+      "general_role": "Declares Angular, Spartacus and third-party package versions and overrides.",
+      "client_implementation": "Client-specific implementation detected with pinned framework versions and security overrides.",
+      "generalized_meaning": "Frontend supply chain.",
+      "business_capability": ["framework-and-library-baseline"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["entire-frontend", "build-output", "bundle-size"],
+      "potential_impact": ["breaking-api-change-in-a-major-bump", "peer-dependency-conflict", "bundle-size-change", "security-posture-change"],
+      "regression_areas": ["full-frontend-regression-on-framework-bump", "build-and-bundle-verification"],
+      "deployment_risk": "high",
+      "risk_modifier": { "patch_bump": "low", "minor_bump": "medium", "major_bump": "critical" },
+      "required_actions": ["full-build", "dependency-audit"],
+      "related_configuration": ["frontend_build_config"],
+      "related_integrations": []
+    },
+
+    "test": {
+      "display_name": "Test",
+      "layer": "test",
+      "general_role": "Unit and integration tests.",
+      "client_implementation": "Client-specific test suites detected covering OCC controllers, filters, hooks, services, populators, adapters and validators.",
+      "generalized_meaning": "Verification.",
+      "business_capability": ["quality-assurance"],
+      "upstream_dependencies": ["the-code-under-test"],
+      "downstream_dependencies": [],
+      "potential_impact": ["reduced-coverage", "build-failure"],
+      "regression_areas": [],
+      "deployment_risk": "low",
+      "required_actions": [],
+      "related_configuration": [],
+      "related_integrations": [],
+      "signal": "Absence of a corresponding test for a changed service, facade or controller raises the regression recommendation for that artifact."
+    },
+
+    "impex_store": {
+      "display_name": "Store / Site ImpEx",
+      "alias_of": "impex_general",
+      "layer": "platform_data",
+      "general_role": "Defines a market's base site and base store: catalogs, currencies, languages, delivery modes, search configuration binding, and commercial flags.",
+      "client_implementation": "Client-specific implementation detected: one site and store definition per market, partitioned across the base data extension and per-phase rollout extensions.",
+      "generalized_meaning": "Market configuration data.",
+      "business_capability": ["market-enablement", "currency-and-language-availability", "search-binding", "commercial-flags"],
+      "upstream_dependencies": ["items_xml", "catalogs", "solr_config"],
+      "downstream_dependencies": ["storefront-availability-for-the-market", "frontend_occ_config-site-context"],
+      "potential_impact": ["market-unreachable", "wrong-currency-or-language-set", "search-configuration-unbound", "commercial-flag-change-affecting-pricing-or-quantity-limits"],
+      "regression_areas": ["market-end-to-end-smoke", "currency-and-language-switching", "search-availability"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-frontend-site-context-includes-the-market"],
+      "related_configuration": ["frontend_occ_config", "solr_config"],
+      "related_integrations": ["erp-organisational-mappings-per-market"]
+    },
+
+    "impex_catalog": {
+      "display_name": "Product Catalog ImpEx",
+      "alias_of": "impex_general",
+      "layer": "platform_data",
+      "general_role": "Defines product catalogs, catalog versions, categories, products and product media.",
+      "client_implementation": "Client-specific implementation detected: one product catalog per market with categories, products and media, localized per supported language.",
+      "generalized_meaning": "Catalog base data.",
+      "business_capability": ["product-availability", "category-structure", "product-imagery"],
+      "upstream_dependencies": ["items_xml", "catalog-versions", "media-formats"],
+      "downstream_dependencies": ["plp", "pdp", "search-index", "navigation"],
+      "potential_impact": ["products-not-visible-until-sync-and-reindex", "category-structure-change-breaking-navigation-and-urls", "orphaned-media"],
+      "regression_areas": ["catalog-sync", "reindex", "plp-and-pdp-per-market", "navigation"],
+      "deployment_risk": "medium",
+      "required_actions": ["catalog-synchronisation", "full-reindex"],
+      "related_configuration": ["solr_config", "hot_folder_config"],
+      "related_integrations": ["product-and-variant-inbound-from-erp"]
+    },
+
+    "impex_cronjob": {
+      "display_name": "CronJob / Trigger / Retention Rule ImpEx",
+      "alias_of": "impex_general",
+      "layer": "platform_data",
+      "general_role": "Declares servicelayer jobs, cron job instances with their parameters, triggers with schedules and active flags, and retention rules with search queries and retention windows.",
+      "client_implementation": "Client-specific implementation detected: retention and stagnation rules for service tickets, their jobs, cron jobs and triggers; and identity-provider invitation and deactivation jobs with tenancy, connection, audience, TTL and rate-limit parameters.",
+      "generalized_meaning": "Scheduled execution configuration.",
+      "business_capability": ["batch-scheduling", "data-retention-and-compliance", "user-lifecycle-automation"],
+      "upstream_dependencies": ["cronjob", "items_xml-job-types"],
+      "downstream_dependencies": ["background-processing-node-load", "data-state"],
+      "potential_impact": ["mass-data-deletion-from-a-retention-rule-change", "job-activated-unintentionally-by-an-active-flag", "schedule-collision-saturating-the-node-group", "rate-limit-breach-against-an-external-api"],
+      "regression_areas": ["dry-run-the-retention-query-before-enabling", "verify-schedule-and-active-flag", "volume-test"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-trigger-schedule-and-active-flag", "verify-retention-rule-scope"],
+      "related_configuration": ["cluster-node-groups", "rate-limit-properties"],
+      "related_integrations": ["identity-provider-management-api"]
+    },
+
+    "impex_integration": {
+      "display_name": "Integration Setup ImpEx",
+      "alias_of": "integration_object",
+      "layer": "integration",
+      "general_role": "Declares the integration service account, client-credentials registration, consumed OAuth credentials, endpoints, destinations, destination targets, and ERP organisational and logical-system mappings.",
+      "client_implementation": "Client-specific implementation detected: an integration service account, client-credentials registration, ERP OAuth credentials, endpoints for customer replication, order creation, order simulation, order history, account/statement and billing, and ERP logical system, sales organisation, plant, distribution-channel, division and delivery-mode mappings.",
+      "generalized_meaning": "Integration wiring and credential surface.",
+      "business_capability": ["where-and-how-commerce-talks-to-the-erp"],
+      "upstream_dependencies": ["properties_environment", "properties_extension"],
+      "downstream_dependencies": ["all-outbound-calls", "all-inbound-channels"],
+      "potential_impact": ["integration-outage", "credential-exposure", "calls-routed-to-the-wrong-environment"],
+      "regression_areas": ["connectivity-test-per-endpoint", "auth-flow-per-credential", "end-to-end-order-and-account-retrieval"],
+      "deployment_risk": "critical",
+      "required_actions": ["secret-handling-review", "coordinate-with-middleware-and-erp-release", "verify-per-environment-endpoint-resolution"],
+      "related_configuration": ["properties_environment"],
+      "related_integrations": ["scpi", "s4-order-management", "oms"]
+    },
+
+    "patch_data": {
+      "display_name": "Patch Resource Data",
+      "alias_of": "patch",
+      "layer": "platform_data",
+      "general_role": "The ImpEx, Groovy or Excel resources a patch executes, organised by release and patch identifier.",
+      "client_implementation": "Client-specific implementation detected: per-release, per-patch resource folders containing global header scripts, content and product catalog ImpEx, per-store Solr and shipping configuration, and localized content.",
+      "generalized_meaning": "Patch payload.",
+      "business_capability": ["release-scoped-data-migration"],
+      "upstream_dependencies": ["patch", "items_xml"],
+      "downstream_dependencies": ["environment-data-state"],
+      "potential_impact": ["executes-once-per-environment-and-cannot-be-rerun", "resource-not-referenced-by-any-patch-class-so-never-runs", "long-execution-window-when-syncing-or-indexing"],
+      "regression_areas": ["execute-in-production-like-environment-first", "verify-the-resource-is-referenced-by-a-patch", "verify-patch-state-tracking"],
+      "deployment_risk": "high",
+      "required_actions": ["run-patches", "verify-execution-state-per-environment"],
+      "related_configuration": ["patch"],
+      "related_integrations": []
+    },
+
+    "properties_local": {
+      "display_name": "Local Properties",
+      "alias_of": "properties_extension",
+      "layer": "configuration",
+      "general_role": "Developer and local-environment configuration overrides, not deployed to cloud environments.",
+      "client_implementation": "Client-specific implementation detected: local database, mail, SSL, SSO, CORS, key generator, password policy and website/media URL overrides.",
+      "generalized_meaning": "Local override configuration.",
+      "business_capability": ["local-development-behaviour"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["local-runtime-only"],
+      "potential_impact": ["masks-a-missing-cloud-property-so-a-defect-only-appears-after-deploy", "credential-material-committed-to-version-control"],
+      "regression_areas": ["verify-the-same-key-exists-in-the-cloud-property-files"],
+      "deployment_risk": "medium",
+      "required_actions": ["verify-cloud-property-parity", "secret-handling-review"],
+      "related_configuration": ["properties_environment", "properties_extension"],
+      "related_integrations": []
+    },
+
+    "project_descriptor": {
+      "display_name": "Project Descriptor",
+      "alias_of": "cloud_manifest",
+      "layer": "configuration",
+      "general_role": "Drives local and CI project setup: Commerce version, template, feature flags, extension additions, core and sample data templates, and storefront configuration.",
+      "client_implementation": "Client-specific implementation detected: headless mode, feature flags for SmartEdit, adaptive search, cloud hot folders, integration, OCC, B2B, order management, assisted service, patches and analytics, plus storefront location and base-site defaults.",
+      "generalized_meaning": "Project setup and feature flags.",
+      "business_capability": ["which-capabilities-are-provisioned"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["local-and-ci-setup", "generated-configuration"],
+      "potential_impact": ["feature-flag-toggle-changing-provisioned-capabilities", "version-drift-against-the-cloud-manifest"],
+      "regression_areas": ["local-setup", "ci-build"],
+      "deployment_risk": "medium",
+      "required_actions": ["verify-version-parity-with-cloud-manifest"],
+      "related_configuration": ["cloud_manifest", "extension_set"],
+      "related_integrations": []
+    },
+
+    "backend_i18n": {
+      "display_name": "Backend Localization Bundle",
+      "layer": "platform_data",
+      "general_role": "Localized message bundles for backend-generated text: API error messages, Backoffice labels, type and attribute names.",
+      "client_implementation": "Client-specific implementation detected: extensive locale bundles per extension covering all supported markets, plus OCC message bundles.",
+      "generalized_meaning": "Backend localization.",
+      "business_capability": ["localized-error-and-admin-text"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["api-error-responses", "backoffice-labels", "email_template"],
+      "potential_impact": ["raw-keys-shown-to-users-or-administrators", "missing-locale-variant"],
+      "regression_areas": ["error-messages-in-every-supported-locale", "backoffice-labels"],
+      "deployment_risk": "low",
+      "required_actions": ["verify-complete-locale-family"],
+      "related_configuration": ["validator", "frontend_i18n"],
+      "related_integrations": []
+    },
+
+    "template": {
+      "display_name": "Velocity Template (non-email)",
+      "alias_of": "email_template",
+      "layer": "platform_data",
+      "general_role": "Velocity templates used for generated output other than transactional email, such as sitemaps.",
+      "client_implementation": "Client-specific implementation detected: a sitemap template.",
+      "generalized_meaning": "Generated output template.",
+      "business_capability": ["seo-and-generated-artifacts"],
+      "upstream_dependencies": ["the-generating-service"],
+      "downstream_dependencies": ["generated-output-consumers"],
+      "potential_impact": ["malformed-output", "seo-regression"],
+      "regression_areas": ["generate-and-validate-the-output-per-market"],
+      "deployment_risk": "low",
+      "required_actions": [],
+      "related_configuration": [],
+      "related_integrations": ["search-engine-crawlers"]
+    },
+
+    "build_config": {
+      "display_name": "Build Configuration",
+      "layer": "configuration",
+      "general_role": "Declares build toolchain, source sets, Java compatibility and build tasks.",
+      "client_implementation": "Client-specific implementation detected: a build script declaring Java compatibility, source and test source sets over the custom extension tree, and store setup tasks.",
+      "generalized_meaning": "Build definition.",
+      "business_capability": ["compilation-and-packaging"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["build-output", "ci_pipeline"],
+      "potential_impact": ["build-failure", "source-set-change-excluding-code-from-compilation-or-tests", "java-compatibility-mismatch-with-the-platform"],
+      "regression_areas": ["full-build", "test-execution-coverage"],
+      "deployment_risk": "high",
+      "required_actions": ["full-build"],
+      "related_configuration": ["cloud_manifest", "extension_set"],
+      "related_integrations": []
+    },
+
+    "ci_pipeline": {
+      "display_name": "CI Pipeline",
+      "layer": "configuration",
+      "general_role": "Automated build, quality and security scanning workflows.",
+      "client_implementation": "Client-specific implementation detected: static analysis and security scanning workflows.",
+      "generalized_meaning": "Quality gate definition.",
+      "business_capability": ["code-quality-and-security-gating"],
+      "upstream_dependencies": ["build_config"],
+      "downstream_dependencies": ["merge-gating", "vulnerability-detection"],
+      "potential_impact": ["quality-or-security-gate-weakened-or-disabled", "false-confidence-in-a-passing-build"],
+      "regression_areas": ["verify-the-gate-still-fails-on-a-known-bad-input"],
+      "deployment_risk": "medium",
+      "required_actions": ["review-any-gate-relaxation"],
+      "related_configuration": ["build_config", "frontend_build_config"],
+      "related_integrations": []
+    },
+
+    "frontend_model": {
+      "display_name": "Frontend Model",
+      "layer": "frontend",
+      "general_role": "TypeScript interfaces describing the shape of API responses and view state.",
+      "client_implementation": "Client-specific implementations detected for account summary, base product detail, cart update, product list, search page, cart, order, order entry, product, user, profile, saved cart detail, shipping configuration and sold-to.",
+      "generalized_meaning": "Frontend type contract.",
+      "business_capability": ["compile-time-api-contract"],
+      "upstream_dependencies": ["beans_xml", "occ_web_spring"],
+      "downstream_dependencies": ["frontend_adapter", "frontend_service", "frontend_component"],
+      "potential_impact": ["type-drift-from-the-actual-api-response", "optional-field-assumptions-causing-runtime-undefined"],
+      "regression_areas": ["the-owning-feature", "verify-against-a-live-api-response"],
+      "deployment_risk": "medium",
+      "required_actions": ["verify-against-backend-dto-and-field-set"],
+      "related_configuration": ["frontend_occ_config"],
+      "related_integrations": []
+    },
+
+    "frontend_component_template": {
+      "display_name": "Frontend Component Template",
+      "alias_of": "frontend_component",
+      "layer": "frontend",
+      "general_role": "The markup half of an Angular component.",
+      "client_implementation": "Client-specific implementations detected paired with each custom component.",
+      "generalized_meaning": "UI markup.",
+      "business_capability": ["user-visible-product"],
+      "upstream_dependencies": ["frontend_component", "frontend_i18n"],
+      "downstream_dependencies": ["rendered-screen"],
+      "potential_impact": ["visual-regression", "accessibility-regression", "binding-to-a-property-that-no-longer-exists"],
+      "regression_areas": ["the-screen", "responsive-breakpoints", "supported-locales", "accessibility-check"],
+      "deployment_risk": "low",
+      "required_actions": [],
+      "related_configuration": ["frontend_i18n"],
+      "related_integrations": []
+    },
+
+    "frontend_pipe": {
+      "display_name": "Frontend Pipe",
+      "layer": "frontend",
+      "general_role": "Reusable display transformations applied in templates.",
+      "client_implementation": "Client-specific implementations detected for timezone-aware date display, thousands separation and price formatting.",
+      "generalized_meaning": "Display formatting.",
+      "business_capability": ["consistent-value-presentation"],
+      "upstream_dependencies": ["locale-and-currency-context"],
+      "downstream_dependencies": ["every-template-using-the-pipe"],
+      "potential_impact": ["wrong-formatted-price-or-date-across-many-screens", "locale-specific-formatting-defects", "timezone-display-errors"],
+      "regression_areas": ["every-screen-using-the-pipe", "all-supported-locales-and-currencies", "timezone-boundaries"],
+      "deployment_risk": "medium",
+      "required_actions": [],
+      "related_configuration": ["frontend_i18n"],
+      "related_integrations": []
+    },
+
+    "frontend_style": {
+      "display_name": "Frontend Styles",
+      "layer": "frontend",
+      "general_role": "Global and component-scoped styling.",
+      "client_implementation": "Client-specific implementation detected: a theme layer over the storefront library styles plus component-scoped styles and shared assets.",
+      "generalized_meaning": "Visual presentation.",
+      "business_capability": ["brand-presentation"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["every-screen-if-global", "the-owning-component-if-scoped"],
+      "potential_impact": ["global-visual-regression-when-shared-styles-change", "responsive-layout-break", "contrast-and-accessibility-regression"],
+      "regression_areas": ["visual-regression-across-key-screens", "responsive-breakpoints", "contrast-check"],
+      "deployment_risk": "low",
+      "risk_modifier": { "global_or_shared_stylesheet": "medium" },
+      "required_actions": [],
+      "related_configuration": [],
+      "related_integrations": []
+    },
+
+    "frontend_environment": {
+      "display_name": "Frontend Environment Configuration",
+      "layer": "frontend",
+      "general_role": "Per-build environment values such as the API base URL and feature flags.",
+      "client_implementation": "Client-specific implementation detected: an API base URL used as the fallback when the runtime meta tag is absent.",
+      "generalized_meaning": "Frontend environment binding.",
+      "business_capability": ["which-backend-the-storefront-talks-to"],
+      "upstream_dependencies": [],
+      "downstream_dependencies": ["every-network-call"],
+      "potential_impact": ["storefront-pointed-at-the-wrong-environment", "cors-failure-against-an-unexpected-origin"],
+      "regression_areas": ["verify-api-base-url-per-build-configuration", "verify-cors-from-the-real-origin"],
+      "deployment_risk": "high",
+      "required_actions": ["verify-per-environment-build-configuration"],
+      "related_configuration": ["frontend_occ_config", "frontend_build_config", "cors-configuration"],
+      "related_integrations": []
+    },
+
+    "frontend_build_config": {
+      "display_name": "Frontend Build Configuration",
+      "layer": "frontend",
+      "general_role": "Declares build targets, configurations, asset and style inclusion, budgets and file replacements per environment.",
+      "client_implementation": "Client-specific implementation detected with production and development configurations.",
+      "generalized_meaning": "Frontend build definition.",
+      "business_capability": ["how-the-storefront-is-built-and-bundled"],
+      "upstream_dependencies": ["frontend_dependencies", "frontend_environment"],
+      "downstream_dependencies": ["build-output", "bundle-size", "asset-availability"],
+      "potential_impact": ["build-failure", "missing-assets-or-styles-in-the-output", "budget-breach", "wrong-environment-file-substituted"],
+      "regression_areas": ["full-frontend-build", "asset-and-style-presence-in-the-output", "bundle-size-budget"],
+      "deployment_risk": "high",
+      "required_actions": ["full-frontend-build"],
+      "related_configuration": ["frontend_dependencies", "frontend_environment"],
+      "related_integrations": []
+    }
+  },
+
+  "vertical_chain": [
+    "items_xml",
+    "generated_model",
+    "dao",
+    "service",
+    "populator",
+    "converter",
+    "beans_xml",
+    "facade",
+    "occ_controller",
+    "occ_web_spring",
+    "frontend_occ_config",
+    "frontend_model",
+    "frontend_component"
+  ],
+
+  "horizontal_chains": {
+    "items_xml": ["solr_config", "integration_object", "impex_general", "backoffice_config"],
+    "spring_xml": ["all-callers-of-aliased-platform-bean"],
+    "interceptor": ["storefront-writes", "occ-writes", "impex-imports", "hot_folder_config", "integration-inbound", "backoffice-edits", "patch"],
+    "event_or_listener": ["business_process", "process_action", "email_template", "customer-inbox"]
+  },
+
+  "critical_paths": {
+    "order_to_cash": {
+      "description": "The revenue path. Any change touching a node here defaults to elevated risk.",
+      "nodes": [
+        "solr_config",
+        "solr_value_provider",
+        "occ_filter:assortment",
+        "facade:product",
+        "strategy:price",
+        "strategy:add_to_cart",
+        "service:cart",
+        "service:calculation",
+        "populator:cart",
+        "occ_web_spring:cart",
+        "strategy:delivery_address_lookup",
+        "impex_store:shipping_configuration",
+        "strategy:cart_validation",
+        "validator:place_order",
+        "hook:place_order",
+        "service:order",
+        "key_generator:order_code",
+        "business_process:erp_order",
+        "process_action:payment_authorisation",
+        "integration_object:outbound_order",
+        "service:erp_response_processor",
+        "event_or_listener:order_confirmation",
+        "business_process:order_confirmation_email",
+        "email_template:order_confirmation",
+        "facade:order",
+        "populator:order_history",
+        "occ_controller:orders"
+      ],
+      "risk_escalation": 1
+    },
+    "authentication": {
+      "description": "Login and authorisation across all channels.",
+      "nodes": [
+        "extension_roles:identity",
+        "occ_controller:sso_token",
+        "occ_controller:idp_login",
+        "impex_security",
+        "backoffice_spring",
+        "frontend_guard",
+        "frontend_interceptor",
+        "properties_extension:sso_mapping"
+      ],
+      "risk_escalation": 1
+    },
+    "master_data_inbound": {
+      "description": "ERP master data landing in Commerce.",
+      "nodes": ["integration_object", "hook:inbound_prepersist", "interceptor", "hot_folder_config", "items_xml", "solr_config"],
+      "risk_escalation": 1
+    }
+  },
+
+  "contract_pairs": [
+    {
+      "id": "occ-fieldset-vs-frontend-fields",
+      "left": "occ_web_spring",
+      "right": "frontend_occ_config",
+      "finding": "contract-drift",
+      "message": "A field-set level mapping changed without a matching change to the frontend OCC endpoint field list (or vice versa). This produces silent nulls in the UI.",
+      "severity": "high"
+    },
+    {
+      "id": "occ-controller-vs-frontend-adapter",
+      "left": "occ_controller",
+      "right": "frontend_adapter",
+      "finding": "contract-drift",
+      "message": "An OCC endpoint changed without a matching frontend adapter or endpoint configuration change.",
+      "severity": "high"
+    },
+    {
+      "id": "items-vs-solr",
+      "left": "items_xml",
+      "right": "solr_config",
+      "finding": "index-drift",
+      "message": "A type attribute changed that may be indexed; verify the Solr indexed property and value provider, then reindex.",
+      "severity": "high"
+    },
+    {
+      "id": "items-vs-integration-object",
+      "left": "items_xml",
+      "right": "integration_object",
+      "finding": "integration-contract-drift",
+      "message": "A type attribute changed that may be exposed in an integration object; verify the inbound/outbound contract with the middleware team.",
+      "severity": "critical"
+    },
+    {
+      "id": "cms-type-vs-frontend-mapping",
+      "left": "cms_component_type",
+      "right": "frontend_feature_registry",
+      "finding": "unmapped-component",
+      "message": "A CMS component type changed or was added without a corresponding frontend CMS component mapping. The slot will render empty.",
+      "severity": "high"
+    },
+    {
+      "id": "validator-vs-i18n",
+      "left": "validator",
+      "right": "frontend_i18n",
+      "finding": "missing-error-message",
+      "message": "A validator introduced a new error condition without a corresponding frontend message key in every locale.",
+      "severity": "medium"
+    },
+    {
+      "id": "beans-vs-fieldset",
+      "left": "beans_xml",
+      "right": "occ_web_spring",
+      "finding": "unexposed-field",
+      "message": "A DTO field was added without adding it to a field-set level. It will never be serialized.",
+      "severity": "medium"
+    }
+  ],
+
+  "completeness_rules": [
+    {
+      "id": "per-store-family",
+      "description": "Artifacts that exist once per store must be changed for all affected stores.",
+      "applies_to": ["solr_config", "impex_store", "cms_content", "hot_folder_config"],
+      "detection": "Diff touches some but not all files matching the same per-store pattern.",
+      "finding": "incomplete-store-coverage",
+      "severity": "high"
+    },
+    {
+      "id": "localized-family",
+      "description": "Localized file families must be updated consistently across all supported languages.",
+      "applies_to": ["impex_general", "impex_security", "cms_content", "backend_i18n", "frontend_i18n", "email_template"],
+      "detection": "Diff touches a base or one locale variant but not the sibling locale variants.",
+      "finding": "incomplete-locale-coverage",
+      "severity": "medium"
+    },
+    {
+      "id": "new-market-rollout",
+      "description": "Adding a market requires coordinated changes in at least five places.",
+      "required_artifacts": [
+        "rollout data extension: site, store, catalog, Solr",
+        "security ImpEx for the market's user groups and roles",
+        "CMS content catalog for the market",
+        "identity provider locale fallback properties",
+        "frontend site context configuration (base site, currency, language)"
+      ],
+      "detection": "Diff adds a new store/site identifier in some but not all of the required artifacts.",
+      "finding": "incomplete-market-rollout",
+      "severity": "high"
+    }
+  ],
+
+  "risk_model": {
+    "bands": {
+      "critical": {
+        "meaning": "Can cause outage, data loss, security breach or a cross-system contract break. Frequently irreversible.",
+        "controls": ["human-approval", "production-like-rehearsal", "rollback-or-compensation-plan", "external-release-coordination"]
+      },
+      "high": {
+        "meaning": "Wide blast radius or requires an operational step (reindex, sync, patch run, restart).",
+        "controls": ["full-capability-regression", "staged-rollout", "documented-runbook-step"]
+      },
+      "medium": {
+        "meaning": "Contained to a capability; recoverable by redeploy.",
+        "controls": ["targeted-regression"]
+      },
+      "low": {
+        "meaning": "Cosmetic or additive; trivially reversible.",
+        "controls": ["smoke-test"]
+      }
+    },
+    "amplifiers": [
+      { "id": "spring-alias-over-platform-bean", "reason": "Silent global substitution", "escalate": 1 },
+      { "id": "on-order-to-cash-path", "reason": "Revenue impact", "escalate": 1 },
+      { "id": "requires-full-reindex", "reason": "Long operational window; stale results meanwhile", "escalate": 1 },
+      { "id": "requires-catalog-sync", "reason": "Long operational window; partial visibility", "escalate": 1 },
+      { "id": "impex-remove-or-update-on-shared-data", "reason": "Destructive and often unbacked by rollback", "escalate": 1 },
+      { "id": "patch-already-executed-in-production", "reason": "Cannot be re-run; needs a compensating patch", "escalate": 1 },
+      { "id": "touches-security-access-rights-or-roles", "reason": "Outage or privilege escalation", "escalate": 1 },
+      { "id": "touches-integration-objects-destinations-or-credentials", "reason": "Requires external release coordination", "escalate": 1 },
+      { "id": "one-sided-contract-change", "reason": "Contract drift causes silent failure", "escalate": 1 },
+      { "id": "partial-market-coverage", "reason": "Inconsistent behaviour across the estate", "escalate": 1 },
+      { "id": "interceptor-or-inbound-hook", "reason": "Bulk-load failures discovered only at import time", "escalate": 1 },
+      { "id": "business-process-node-id-change", "reason": "Strands in-flight process instances", "escalate": 1 },
+      { "id": "key-generator-format-change", "reason": "Breaks ERP and support correlation on existing identifiers", "escalate": 1 },
+      { "id": "no-corresponding-test", "reason": "Reduced verification confidence", "escalate": 0, "note": "Raises regression recommendation rather than risk band." }
+    ]
+  },
+
+  "deployment_actions": [
+    { "trigger_artifact": "items_xml", "action": "system-update", "detail": "Run system update with the affected extension selected; verify model regeneration; review DDL." },
+    { "trigger_artifact": "solr_config", "action": "full-reindex", "detail": "Import Solr ImpEx, then run a full reindex for every affected store." },
+    { "trigger_artifact": "solr_value_provider", "action": "full-reindex", "detail": "Run a full reindex for every affected store." },
+    { "trigger_artifact": "cms_content", "action": "catalog-sync", "detail": "Synchronise affected content catalogs from Staged to Online." },
+    { "trigger_artifact": "impex_catalog", "action": "catalog-sync", "detail": "Synchronise affected product catalogs." },
+    { "trigger_artifact": "patch", "action": "run-patches", "detail": "Confirm patch id and release ordering; run patches; verify execution state per environment." },
+    { "trigger_artifact": "system_setup", "action": "verify-every-update", "detail": "Confirm the change is safe on every system update, not just this release." },
+    { "trigger_artifact": "properties_extension", "action": "restart-aspects", "detail": "Confirm the key exists in every persona and aspect file that needs it; restart affected aspects." },
+    { "trigger_artifact": "properties_environment", "action": "restart-aspects", "detail": "Verify per-persona resolution; restart affected aspects." },
+    { "trigger_artifact": "integration_object", "action": "coordinate-external-release", "detail": "Coordinate with middleware/ERP; replay payload set; verify credential rotation safety." },
+    { "trigger_artifact": "occ_controller", "action": "coordinate-frontend-release", "detail": "Release backend and frontend together; regenerate and publish API documentation." },
+    { "trigger_artifact": "occ_web_spring", "action": "coordinate-frontend-release", "detail": "Verify frontend field lists match; regenerate API documentation." },
+    { "trigger_artifact": "extension_set", "action": "full-build-and-deploy", "detail": "Full build and full environment deploy; verify every declared context path is reachable." },
+    { "trigger_artifact": "cloud_manifest", "action": "full-build-and-deploy", "detail": "Full build and full environment deploy; verify aspect topology and property resolution." },
+    { "trigger_artifact": "cronjob", "action": "verify-trigger-configuration", "detail": "Verify schedule, active flag and node group; test at production-like volume." },
+    { "trigger_artifact": "impex_cronjob", "action": "verify-trigger-configuration", "detail": "Verify schedule, active flag and retention rule scope before enabling." },
+    { "trigger_artifact": "business_process", "action": "verify-in-flight-processes", "detail": "Confirm running process instances are compatible with the new definition; avoid renaming node ids." },
+    { "trigger_artifact": "backoffice_config", "action": "restart-backoffice-aspect", "detail": "Restart the Backoffice aspect and reset the Backoffice cache if configured." },
+    { "trigger_artifact": "frontend_dependencies", "action": "full-frontend-build", "detail": "Full build, dependency audit and bundle verification." }
+  ],
+
+  "regression_map": {
+    "product_discovery": {
+      "triggers": ["solr_config", "solr_value_provider", "occ_filter", "facade", "populator", "frontend_component", "service"],
+      "trigger_hints": ["assortment", "search", "solr", "facet", "product-list"],
+      "scope": ["plp", "search-results", "facets", "sorting", "autocomplete", "entitlement-isolation-two-organisations", "per-store-locale-currency"]
+    },
+    "product_detail": {
+      "triggers": ["facade", "populator", "strategy", "occ_controller", "frontend_component"],
+      "trigger_hints": ["product", "variant", "price", "stock", "pdp", "baseproduct"],
+      "scope": ["pdp-base-and-variant", "scaled-and-tiered-prices", "stock-states", "images", "max-quantity", "notify-me"]
+    },
+    "cart": {
+      "triggers": ["service", "strategy", "facade", "populator", "occ_controller", "frontend_component"],
+      "trigger_hints": ["cart", "add-to-cart", "calculation", "saved-cart"],
+      "scope": ["add-update-remove", "quantity-limits", "totals", "multi-organisation", "saved-cart-interactions", "mini-cart"]
+    },
+    "checkout": {
+      "triggers": ["strategy", "validator", "impex_store", "frontend_component", "frontend_root_module"],
+      "trigger_hints": ["checkout", "delivery", "shipping", "address-lookup", "place-order"],
+      "scope": ["full-checkout-happy-and-negative-paths", "address-selection", "delivery-method-availability-by-cutoff-and-day", "error-messaging-per-locale"]
+    },
+    "order_placement_to_erp": {
+      "triggers": ["hook", "service", "key_generator", "business_process", "process_action", "integration_object"],
+      "trigger_hints": ["order", "erp", "s4", "sap", "outbound", "payload", "partner", "contributor"],
+      "scope": ["end-to-end-order-to-erp", "payment-authorisation-branch", "failure-and-notification-branches", "order-code-format", "retry-behaviour"]
+    },
+    "order_history_and_detail": {
+      "triggers": ["facade", "service", "populator", "occ_web_spring", "occ_controller", "frontend_component"],
+      "trigger_hints": ["order-history", "org-orders", "invoice", "order-detail", "reorder"],
+      "scope": ["list-filter-pagination", "detail", "reorder", "invoice-and-statement-download", "order-types"]
+    },
+    "account_and_organisation": {
+      "triggers": ["service", "facade", "populator", "occ_controller", "frontend_component"],
+      "trigger_hints": ["customer", "b2bunit", "sold-to", "address", "profile", "org-unit"],
+      "scope": ["profile", "address-book", "sold-to-switching", "organisation-unit-switching", "user-creation-and-deactivation", "role-visibility"]
+    },
+    "financial_account_summary": {
+      "triggers": ["service", "dao", "facade", "populator", "occ_controller", "frontend_component"],
+      "trigger_hints": ["account-summary", "statement", "billing", "invoice"],
+      "scope": ["summary", "filters-and-pagination", "document-types", "statement-pdf", "currency-handling"]
+    },
+    "support_ticketing": {
+      "triggers": ["service", "dao", "facade", "populator", "occ_controller", "strategy", "cronjob", "frontend_component"],
+      "trigger_hints": ["ticket", "csticket", "attachment", "retention", "stagnation"],
+      "scope": ["create-list-read", "message-posting", "attachment-upload-and-download", "category-handling", "notification-emails", "retention-and-stagnation-jobs"]
+    },
+    "notifications_and_email": {
+      "triggers": ["event_or_listener", "business_process", "process_action", "email_template", "service"],
+      "trigger_hints": ["email", "notification", "event", "listener", "process"],
+      "scope": ["every-transactional-email-per-locale", "context-variables", "links"]
+    },
+    "content_and_cms": {
+      "triggers": ["cms_component_type", "cms_content", "frontend_feature_registry", "frontend_module", "smartedit_config"],
+      "trigger_hints": ["cms", "content", "faq", "banner", "carousel", "navigation", "footer"],
+      "scope": ["page-rendering-per-template-and-market", "smartedit-authoring", "catalog-sync", "localized-content-all-languages"]
+    },
+    "master_data_inbound": {
+      "triggers": ["integration_object", "hook", "interceptor", "hot_folder_config"],
+      "trigger_hints": ["inbound", "pricerow", "stocklevel", "variantproduct", "employee", "b2bcustomer", "b2bunit", "listing", "exclusion"],
+      "scope": ["payload-replay-positive-and-negative", "volume-test", "resulting-storefront-behaviour-price-stock-entitlement-access"]
+    },
+    "authentication_and_authorisation": {
+      "triggers": ["impex_security", "occ_controller", "backoffice_spring", "frontend_guard", "frontend_interceptor", "properties_extension"],
+      "trigger_hints": ["auth", "sso", "saml", "oauth", "role", "permission", "access-right", "login", "logout", "token"],
+      "scope": ["login-per-identity-type-and-channel", "role-matrix", "session-handling", "logout", "token-refresh", "cross-organisation-isolation"]
+    },
+    "administration": {
+      "triggers": ["backoffice_config", "backoffice_widget", "backoffice_spring"],
+      "trigger_hints": ["backoffice", "widget", "editor", "renderer"],
+      "scope": ["admin-login", "per-role-and-per-site-visibility", "custom-actions", "editing-each-customised-type"]
+    }
+  },
+
+  "engine_heuristics": [
+    "Never analyse a file in isolation; resolve its artifact type first, then apply the type's declared fan-out.",
+    "Spring XML and ImpEx are code. A release with no Java changes can still be critical.",
+    "Check every contract pair for a missing half.",
+    "Check per-store and per-locale artifact families for completeness.",
+    "Escalate anything that reaches the order-to-cash critical path.",
+    "Emit operational steps (reindex, catalog sync, system update, patch run, aspect restart, external coordination), not just a risk score.",
+    "Flag the presence of credentials or secret material; never reproduce values.",
+    "Strip client prefixes and reason about the architectural role so rules apply to any SAP Commerce customer.",
+    "Treat the absence of a corresponding test for a changed service, facade or controller as a regression signal.",
+    "When a change is ambiguous between two artifact types, choose the higher-priority classification from file_classification."
+  ],
+
+  "glossary": {
+    "item_type": "A business object definition and its database table.",
+    "type_system_update": "Applying item-type changes to the database schema.",
+    "facade": "The layer that assembles what an API returns.",
+    "populator": "Fills one part of an API response.",
+    "converter": "The recipe that assembles a full API response object.",
+    "interceptor": "A rule that runs every time a record is saved.",
+    "strategy": "A swappable decision, such as how a price is chosen.",
+    "hook": "An extension point in a standard platform operation.",
+    "occ": "The headless REST API the storefront calls.",
+    "field_set_level": "How much detail an API response includes (BASIC, DEFAULT, FULL).",
+    "impex": "A data script that adds or changes records.",
+    "patch": "A one-time, tracked data migration for a release.",
+    "catalog_synchronisation": "Publishing staged catalog and content changes live.",
+    "reindex": "Rebuilding the search index so changes become searchable.",
+    "aspect": "A group of servers running a specific role (API, admin, background).",
+    "integration_object": "The agreed data shape exchanged with the ERP.",
+    "base_site_base_store": "A market's storefront configuration and its commercial settings.",
+    "b2b_unit": "A customer organisation in the account hierarchy.",
+    "assortment": "The set of products a customer is entitled to buy.",
+    "business_process": "A long-running workflow such as sending an order to the ERP."
+  }
+}
