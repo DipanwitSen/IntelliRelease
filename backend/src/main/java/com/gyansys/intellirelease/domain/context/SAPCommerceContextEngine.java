@@ -1,5 +1,7 @@
 package com.gyansys.intellirelease.domain.context;
 
+import com.gyansys.intellirelease.domain.context.knowledge.SapCommerceKnowledgeBase;
+import com.gyansys.intellirelease.model.enums.ConfidenceLevel;
 import com.gyansys.intellirelease.model.enums.ProvenanceClass;
 import com.gyansys.intellirelease.model.enums.SapCapability;
 import org.slf4j.Logger;
@@ -82,7 +84,7 @@ public class SAPCommerceContextEngine {
                 input.size(),
                 unclassified,
                 testsIncluded,
-                CapabilityLibrary.LIBRARY_VERSION,
+                library.libraryVersion(),
                 ProvenanceClass.DERIVED_FACT
         );
     }
@@ -93,25 +95,50 @@ public class SAPCommerceContextEngine {
      */
     public FileContext classify(String path) {
         PathFacts facts = PathFacts.of(path);
-        Optional<CapabilityRule> match = library.firstMatch(facts);
+        Optional<SapCommerceKnowledgeBase.Match> match = library.classify(facts);
 
         if (match.isEmpty()) {
             return FileContext.unclassified(facts.path());
         }
 
-        CapabilityRule rule = match.get();
-        SapCapability businessDomain = resolveBusinessDomain(facts, rule.capability());
+        SapCommerceKnowledgeBase.Match knowledgeMatch = match.get();
+        var definition = knowledgeMatch.definition();
+        SapCapability capability = library.legacyCapability(knowledgeMatch.artifactType());
+        SapCapability businessDomain = resolveBusinessDomain(facts, capability);
+        String displayName = definition == null ? knowledgeMatch.artifactType() : definition.displayName();
+        String evidence = definition == null
+                ? "Matched knowledge base pattern " + knowledgeMatch.matchedPattern()
+                : displayName + " — " + definition.generalizedMeaning();
 
         return new FileContext(
                 facts.path(),
-                rule.capability(),
+                capability,
                 businessDomain,
                 ProvenanceClass.DERIVED_FACT,
-                rule.consequences(),
-                rule.confidence(),
-                rule.evidence(),
-                rule.name()
+                definition == null ? List.of() : definition.potentialImpact(),
+                confidenceFor(knowledgeMatch.priority()),
+                evidence,
+                knowledgeMatch.artifactType(),
+                knowledgeMatch.artifactType(),
+                displayName,
+                definition == null ? null : definition.generalRole(),
+                definition == null ? List.of() : definition.businessCapability(),
+                definition == null ? null : definition.deploymentRisk(),
+                definition == null ? List.of() : definition.potentialImpact(),
+                definition == null ? List.of() : definition.regressionAreas()
         );
+    }
+
+    /**
+     * The knowledge base ranks patterns by specificity (priority), not
+     * confidence — this derives one from the other rather than adding a
+     * second, redundant dimension to every rule in the data file.
+     */
+    private static ConfidenceLevel confidenceFor(int priority) {
+        if (priority >= 90) {
+            return ConfidenceLevel.HIGH;
+        }
+        return priority >= 70 ? ConfidenceLevel.MEDIUM : ConfidenceLevel.LOW;
     }
 
     /**
