@@ -1,0 +1,18 @@
+<form class="login-form" (ngSubmit)="submit()">
+  <h2>Sign in</h2>
+  <p class="hint">Seeded POC accounts: developer / developer, qa / qa, releasemanager / releasemanager, approver / approver</p>
+
+  <label>
+    Username
+    <input type="text" name="username" [(ngModel)]="username" autocomplete="username" required />
+  </label>
+
+  <label>
+    Password
+    <input type="password" name="password" [(ngModel)]="password" autocomplete="current-password" required />
+  </label>
+
+  <button type="submit" [disabled]="loading">{{ loading ? 'Signing in…' : 'Sign in' }}</button>
+
+  <p class="error" *ngIf="error">{{ error }}</p>
+</form>

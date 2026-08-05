@@ -1,0 +1,17 @@
+<main class="shell" [class.shell-wide]="auth.isAuthenticated()">
+  <h1>IntelliRelease</h1>
+  <p>AI-Powered SAP Commerce Release Intelligence &amp; Deployment Governance Platform</p>
+
+  <div class="status" [ngSwitch]="backendStatus">
+    <span *ngSwitchCase="'checking'">Checking backend connection…</span>
+    <span *ngSwitchCase="'up'" class="up">Backend connected (Spring Boot on :8080)</span>
+    <span *ngSwitchCase="'down'" class="down">Backend unreachable — start the Spring Boot service on :8080</span>
+  </div>
+
+  <ng-container *ngIf="backendStatus === 'up'">
+    <app-dashboard *ngIf="auth.isAuthenticated(); else loginTpl" />
+    <ng-template #loginTpl>
+      <app-login />
+    </ng-template>
+  </ng-container>
+</main>

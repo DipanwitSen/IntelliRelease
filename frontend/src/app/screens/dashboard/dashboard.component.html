@@ -1,0 +1,129 @@
+<div class="dashboard">
+  <header class="dashboard-header">
+    <div>
+      <h2>Pull requests</h2>
+      <p class="hint">Signed in as {{ auth.username() }}</p>
+    </div>
+    <div class="dashboard-actions">
+      <button type="button" (click)="refresh()">Refresh</button>
+      <button type="button" (click)="logout()">Sign out</button>
+    </div>
+  </header>
+
+  <p class="error" *ngIf="error">{{ error }}</p>
+
+  <p *ngIf="loading">Loading…</p>
+
+  <p *ngIf="!loading && pullRequests.length === 0">
+    No pull requests captured yet. Merge a PR on the connected repository to see it here.
+  </p>
+
+  <table class="pr-table" *ngIf="!loading && pullRequests.length > 0">
+    <thead>
+      <tr>
+        <th>PR</th>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Merged</th>
+        <th>Risk</th>
+        <th>Readiness</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let pr of pullRequests" (click)="select(pr)" class="pr-row">
+        <td>#{{ pr.prNumber }}</td>
+        <td>{{ pr.title }}</td>
+        <td>{{ pr.author }}</td>
+        <td>{{ pr.mergedAt | date: 'short' }}</td>
+        <td>
+          <span class="badge" *ngIf="pr.riskLevel" [class]="'risk-' + pr.riskLevel.toLowerCase()">
+            {{ pr.riskScore }} {{ pr.riskLevel }}
+          </span>
+          <span class="hint" *ngIf="!pr.analyzed">pending</span>
+        </td>
+        <td>
+          <span class="badge" *ngIf="pr.deploymentReadinessStatus" [class]="'readiness-' + pr.deploymentReadinessStatus.toLowerCase()">
+            {{ pr.deploymentReadinessScore }}/100 {{ pr.deploymentReadinessStatus }}
+          </span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="detail-panel" *ngIf="detailLoading || selected">
+    <button type="button" class="close-detail" (click)="closeDetail()">Close</button>
+
+    <p *ngIf="detailLoading">Loading detail…</p>
+
+    <ng-container *ngIf="selected as pr">
+      <h3>#{{ pr.prNumber }} — {{ pr.title }}</h3>
+      <p class="hint">{{ pr.repoName }} · {{ pr.branch }} · {{ pr.mergeSha.substring(0, 8) }}</p>
+
+      <div class="ai-fallback-note" *ngIf="pr.aiFallbackUsed">
+        AI narration unavailable — showing deterministic template output (not model-generated).
+      </div>
+
+      <section class="sap-context" *ngIf="pr.sapCommerceContext as ctx">
+        <h4>SAP Commerce classification</h4>
+        <p class="hint">
+          {{ ctx.fileCount }} file(s) analysed, {{ ctx.unclassifiedCount }} unclassified
+          · knowledge base {{ ctx.libraryVersion }}
+        </p>
+
+        <div class="artifact-card" *ngFor="let file of ctx.files">
+          <div class="artifact-card-header">
+            <code>{{ file.filePath }}</code>
+            <span class="badge" *ngIf="file.deploymentRiskBand" [class]="'kb-risk-' + file.deploymentRiskBand">
+              {{ file.deploymentRiskBand }}
+            </span>
+            <span class="hint" *ngIf="!file.classified">unclassified</span>
+          </div>
+
+          <ng-container *ngIf="file.classified">
+            <p><strong>{{ file.artifactDisplayName }}</strong> ({{ file.artifactType }})</p>
+            <p class="hint">{{ file.generalRole }}</p>
+
+            <p class="tag-row" *ngIf="file.businessCapabilityTags.length">
+              <span class="tag" *ngFor="let tag of file.businessCapabilityTags">{{ tag }}</span>
+            </p>
+
+            <details *ngIf="file.knowledgeBaseImpact.length">
+              <summary>Potential impact ({{ file.knowledgeBaseImpact.length }})</summary>
+              <ul>
+                <li *ngFor="let impact of file.knowledgeBaseImpact">{{ impact }}</li>
+              </ul>
+            </details>
+
+            <details *ngIf="file.regressionAreas.length">
+              <summary>Regression areas ({{ file.regressionAreas.length }})</summary>
+              <ul>
+                <li *ngFor="let area of file.regressionAreas">{{ area }}</li>
+              </ul>
+            </details>
+          </ng-container>
+
+          <p class="hint" *ngIf="!file.classified">{{ file.evidence }}</p>
+        </div>
+      </section>
+
+      <section *ngIf="pr.aiSummary as ai">
+        <h4>Technical summary</h4>
+        <p>{{ ai.technicalSummary }}</p>
+
+        <h4>Risk</h4>
+        <p>{{ ai.riskExplanation }}</p>
+
+        <h4>Regression guidance</h4>
+        <p>{{ ai.qaSummary }}</p>
+
+        <h4>Readiness</h4>
+        <p>{{ ai.readinessExplanation }}</p>
+
+        <h4>Business summary</h4>
+        <p>{{ ai.businessSummary }}</p>
+      </section>
+
+      <p class="hint" *ngIf="!pr.aiSummary">No analysis yet — the background job may still be running.</p>
+    </ng-container>
+  </div>
+</div>
