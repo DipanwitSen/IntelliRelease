@@ -24,7 +24,13 @@ import java.util.regex.Pattern;
  *   <li>{@code **} matches zero or more whole segments, including zero when it
  *       sits between two slashes or leads the pattern</li>
  *   <li>{@code ?} matches one non-separator character</li>
+ *   <li>{@code {a,b,c}} matches any one of the alternatives</li>
  * </ul>
+ *
+ * <p>Brace alternation exists because the integration catalogue needs patterns
+ * like {@code **}{@code /*Order*{Converter,Populator,Contributor}*.java}.
+ * Writing those as three rules each would triple the catalogue and make it
+ * possible for one of the three to drift.
  */
 public final class PathGlob {
 
@@ -86,6 +92,29 @@ public final class PathGlob {
                 i++;
                 continue;
             }
+
+            // Brace alternation: {a,b,c} -> (?:a|b|c). Only treated as
+            // alternation when a closing brace actually follows on the same
+            // pattern; an unmatched '{' falls through and is escaped as a
+            // literal, so a malformed pattern degrades to "matches nothing"
+            // rather than throwing at startup.
+            if (current == '{') {
+                int close = glob.indexOf('}', i);
+                if (close > i) {
+                    String[] alternatives = glob.substring(i + 1, close).split(",", -1);
+                    regex.append("(?:");
+                    for (int a = 0; a < alternatives.length; a++) {
+                        if (a > 0) {
+                            regex.append('|');
+                        }
+                        regex.append(Pattern.quote(alternatives[a]));
+                    }
+                    regex.append(')');
+                    i = close + 1;
+                    continue;
+                }
+            }
+
             if ("\\.[]{}()+-^$|".indexOf(current) >= 0) {
                 regex.append('\\').append(current);
                 i++;

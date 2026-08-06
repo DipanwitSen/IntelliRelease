@@ -1,0 +1,970 @@
+{
+  "$schema": "https://intellirelease.dev/schemas/integration-catalog/v1.json",
+  "meta": {
+    "name": "Integration Landscape Catalogue",
+    "version": "1.0.0",
+    "purpose": "Deterministic description of the integration surface around a commerce platform: interfaces, end-to-end flows, field mappings, API contracts and the file patterns that link a code change to each of them.",
+    "generalizationPolicy": "Client-specific names are normalised to architectural roles. Nothing here contains source code, business logic, credentials or captured production data. Sample payloads are illustrative."
+  },
+
+  "_comment_topologies": "A landscape is described by which of these it uses, not by assuming one. A customer with no middleware simply has no MIDDLEWARE profile enabled, and every module downstream stops mentioning one.",
+
+  "topologies": [
+    {
+      "id": "MIDDLEWARE",
+      "label": "Middleware-mediated",
+      "description": "Commerce exchanges messages with an integration platform, which transforms and routes them to the target system. Common with SAP Integration Suite (CPI), MuleSoft, Boomi or webMethods.",
+      "stageChain": [
+        { "id": "mw-commerce", "label": "Commerce", "kind": "SOURCE", "detail": "Business event or API call originates in the commerce platform.", "protocols": ["REST", "SOAP"], "tone": "accent" },
+        { "id": "mw-build", "label": "Payload build", "kind": "PAYLOAD_BUILD", "detail": "Domain model converted to a DTO and serialised to the wire format.", "protocols": ["JSON", "XML"], "tone": "info" },
+        { "id": "mw-transport", "label": "Transport", "kind": "TRANSPORT", "detail": "Message leaves commerce over the configured channel and authentication scheme.", "protocols": ["REST", "SOAP", "ODATA"], "tone": "neutral" },
+        { "id": "mw-platform", "label": "Integration platform", "kind": "MIDDLEWARE", "detail": "Receives, validates, enriches and routes the message.", "protocols": ["REST", "SOAP", "IDOC"], "tone": "info" },
+        { "id": "mw-mapping", "label": "Mapping", "kind": "TRANSFORMATION", "detail": "Source structure mapped to the target structure. The most common source of silent field loss.", "protocols": [], "tone": "warning" },
+        { "id": "mw-target", "label": "Target system", "kind": "TARGET", "detail": "ERP or line-of-business system persists the document and returns a result.", "protocols": ["IDOC", "RFC", "ODATA"], "tone": "accent" },
+        { "id": "mw-ack", "label": "Acknowledgement", "kind": "ACKNOWLEDGEMENT", "detail": "Result or error propagated back to commerce.", "protocols": [], "tone": "success" }
+      ]
+    },
+    {
+      "id": "DIRECT",
+      "label": "Direct point-to-point",
+      "description": "Commerce calls the target system directly with no middleware hop. Fewer moving parts, but transformation and retry become the caller's problem.",
+      "stageChain": [
+        { "id": "dir-commerce", "label": "Commerce", "kind": "SOURCE", "detail": "Call originates in the commerce platform.", "protocols": ["REST", "ODATA"], "tone": "accent" },
+        { "id": "dir-build", "label": "Payload build", "kind": "PAYLOAD_BUILD", "detail": "Domain model serialised straight into the target system's own contract.", "protocols": ["JSON", "XML"], "tone": "info" },
+        { "id": "dir-transport", "label": "Transport", "kind": "TRANSPORT", "detail": "Direct call, usually synchronous and usually authenticated per-request.", "protocols": ["REST", "ODATA", "SOAP"], "tone": "neutral" },
+        { "id": "dir-target", "label": "Target system", "kind": "TARGET", "detail": "Target processes the request inline and returns a result.", "protocols": ["ODATA", "RFC"], "tone": "accent" }
+      ]
+    },
+    {
+      "id": "FILE_BASED",
+      "label": "File exchange",
+      "description": "Files are written to or read from a shared location and processed in batches. Very common for price, stock and catalogue feeds, and often the only integration a smaller retailer runs.",
+      "stageChain": [
+        { "id": "file-produce", "label": "File produced", "kind": "SOURCE", "detail": "A job writes a delimited or fixed-width file from the source system.", "protocols": ["FILE", "CSV"], "tone": "accent" },
+        { "id": "file-transfer", "label": "Transfer", "kind": "TRANSPORT", "detail": "File lands on SFTP, an object store or a mounted share.", "protocols": ["SFTP", "S3", "FTP"], "tone": "neutral" },
+        { "id": "file-import", "label": "Import job", "kind": "PERSISTENCE", "detail": "A scheduled job parses, validates and applies the rows. Partial success is normal and must be reported per row.", "protocols": ["CSV", "IMPEX"], "tone": "info" }
+      ]
+    },
+    {
+      "id": "EVENT_STREAM",
+      "label": "Event streaming",
+      "description": "Events are published to a broker and consumed independently. Producers do not know their consumers, so a payload change is a fan-out risk rather than a single-consumer risk.",
+      "stageChain": [
+        { "id": "evt-publish", "label": "Event published", "kind": "SOURCE", "detail": "Business event emitted by the commerce platform.", "protocols": ["KAFKA", "AMQP"], "tone": "accent" },
+        { "id": "evt-broker", "label": "Broker", "kind": "QUEUE", "detail": "Topic retains the event; consumers read at their own pace.", "protocols": ["KAFKA"], "tone": "info" },
+        { "id": "evt-consume", "label": "Consumers", "kind": "TARGET", "detail": "One or more independent consumers process the event.", "protocols": [], "tone": "accent" }
+      ]
+    }
+  ],
+
+  "interfaces": [
+    {
+      "id": "out-order-create",
+      "name": "Order creation",
+      "description": "Places a confirmed commerce order in the target ERP as a sales order.",
+      "direction": "OUTBOUND", "style": "ASYNC", "topology": "MIDDLEWARE",
+      "protocols": ["SOAP", "REST"], "formats": ["XML", "JSON"], "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "businessObject": "Order", "domain": "Order Management",
+      "sourceSystem": "Commerce", "targetSystem": "ERP", "middleware": "Integration Platform",
+      "flowId": "flow-create-order",
+      "relatedArtifacts": [
+        { "kind": "CONVERTER", "name": "OrderToTargetConverter", "system": "Commerce" },
+        { "kind": "POPULATOR", "name": "OrderHeaderPopulator", "system": "Commerce" },
+        { "kind": "DTO", "name": "SalesOrderRequest", "system": "Commerce" }
+      ],
+      "tags": ["order", "sales", "critical-path"]
+    },
+    {
+      "id": "out-invoice",
+      "name": "Invoice retrieval",
+      "description": "Fetches invoice headers and documents for an order so a customer can view or download them.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "MIDDLEWARE",
+      "protocols": ["ODATA", "REST"], "formats": ["JSON", "PDF"], "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "businessObject": "Invoice", "domain": "Order Management",
+      "sourceSystem": "Commerce", "targetSystem": "ERP", "middleware": "Integration Platform",
+      "flowId": "flow-invoice",
+      "relatedArtifacts": [{ "kind": "FACADE", "name": "InvoiceFacade", "system": "Commerce" }],
+      "tags": ["invoice", "documents", "self-service"]
+    },
+    {
+      "id": "out-shipment",
+      "name": "Shipment tracking",
+      "description": "Reads delivery and tracking status for dispatched orders.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "MIDDLEWARE",
+      "protocols": ["ODATA"], "formats": ["JSON"], "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "businessObject": "Shipment", "domain": "Logistics",
+      "sourceSystem": "Commerce", "targetSystem": "ERP", "middleware": "Integration Platform",
+      "flowId": "flow-shipment",
+      "relatedArtifacts": [{ "kind": "SERVICE", "name": "ShipmentTrackingService", "system": "Commerce" }],
+      "tags": ["shipment", "delivery", "tracking"]
+    },
+    {
+      "id": "out-pricing-simulation",
+      "name": "Pricing simulation",
+      "description": "Asks the ERP to price a basket in real time, including customer-specific conditions.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "DIRECT",
+      "protocols": ["ODATA"], "formats": ["JSON"], "auth": "OAUTH2_SAML_BEARER",
+      "businessObject": "Pricing", "domain": "Pricing",
+      "sourceSystem": "Commerce", "targetSystem": "ERP",
+      "flowId": "flow-pricing",
+      "relatedArtifacts": [{ "kind": "STRATEGY", "name": "ExternalPricingStrategy", "system": "Commerce" }],
+      "tags": ["pricing", "simulation", "latency-sensitive", "critical-path"]
+    },
+    {
+      "id": "out-returns",
+      "name": "Return request",
+      "description": "Raises a return or refund request against a delivered order.",
+      "direction": "OUTBOUND", "style": "ASYNC", "topology": "MIDDLEWARE",
+      "protocols": ["REST"], "formats": ["JSON"], "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "businessObject": "Return", "domain": "Order Management",
+      "sourceSystem": "Commerce", "targetSystem": "ERP", "middleware": "Integration Platform",
+      "flowId": "flow-returns",
+      "relatedArtifacts": [{ "kind": "SERVICE", "name": "ReturnRequestService", "system": "Commerce" }],
+      "tags": ["returns", "refund", "after-sales"]
+    },
+    {
+      "id": "in-product",
+      "name": "Product master",
+      "description": "Loads product master data and catalogue attributes into commerce.",
+      "direction": "INBOUND", "style": "BATCH", "topology": "FILE_BASED",
+      "protocols": ["SFTP", "FILE"], "formats": ["CSV", "IMPEX"], "auth": "SSH_KEY",
+      "businessObject": "Product", "domain": "Master Data",
+      "sourceSystem": "ERP", "targetSystem": "Commerce",
+      "flowId": "flow-product-sync",
+      "relatedArtifacts": [
+        { "kind": "IMPEX", "name": "product-import.impex", "system": "Commerce" },
+        { "kind": "CRONJOB", "name": "ProductImportCronJob", "system": "Commerce" }
+      ],
+      "tags": ["product", "catalogue", "master-data", "csv"]
+    },
+    {
+      "id": "in-price",
+      "name": "Price conditions",
+      "description": "Loads list and condition prices. Frequently the only integration a file-based landscape runs daily.",
+      "direction": "INBOUND", "style": "BATCH", "topology": "FILE_BASED",
+      "protocols": ["SFTP"], "formats": ["CSV"], "auth": "SSH_KEY",
+      "businessObject": "Price", "domain": "Pricing",
+      "sourceSystem": "ERP", "targetSystem": "Commerce",
+      "flowId": "flow-price-import",
+      "relatedArtifacts": [{ "kind": "CRONJOB", "name": "PriceImportCronJob", "system": "Commerce" }],
+      "tags": ["price", "condition", "batch", "csv"]
+    },
+    {
+      "id": "in-inventory",
+      "name": "Inventory levels",
+      "description": "Updates available stock per product and plant.",
+      "direction": "INBOUND", "style": "ASYNC", "topology": "EVENT_STREAM",
+      "protocols": ["KAFKA", "REST"], "formats": ["JSON"], "auth": "API_KEY",
+      "businessObject": "Inventory", "domain": "Master Data",
+      "sourceSystem": "ERP", "targetSystem": "Commerce",
+      "flowId": "flow-inventory",
+      "relatedArtifacts": [{ "kind": "SERVICE", "name": "StockLevelUpdateService", "system": "Commerce" }],
+      "tags": ["inventory", "stock", "availability"]
+    },
+    {
+      "id": "in-customer",
+      "name": "Customer and business partner",
+      "description": "Synchronises customer accounts and business partner records into commerce.",
+      "direction": "BIDIRECTIONAL", "style": "ASYNC", "topology": "MIDDLEWARE",
+      "protocols": ["REST", "IDOC"], "formats": ["JSON", "IDOC_XML"], "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "businessObject": "Customer", "domain": "Master Data",
+      "sourceSystem": "ERP", "targetSystem": "Commerce", "middleware": "Integration Platform",
+      "flowId": "flow-customer-sync",
+      "relatedArtifacts": [
+        { "kind": "INTEGRATION_OBJECT", "name": "InboundCustomer", "system": "Commerce" },
+        { "kind": "MODEL", "name": "B2BUnitModel", "system": "Commerce" }
+      ],
+      "tags": ["customer", "business-partner", "master-data"]
+    },
+    {
+      "id": "in-material",
+      "name": "Material and plant data",
+      "description": "Loads material master and plant assignments used for availability and fulfilment.",
+      "direction": "INBOUND", "style": "BATCH", "topology": "FILE_BASED",
+      "protocols": ["SFTP"], "formats": ["CSV", "FIXED_WIDTH"], "auth": "SSH_KEY",
+      "businessObject": "Material", "domain": "Master Data",
+      "sourceSystem": "ERP", "targetSystem": "Commerce",
+      "relatedArtifacts": [{ "kind": "IMPEX", "name": "material-import.impex", "system": "Commerce" }],
+      "tags": ["material", "plant", "master-data", "csv"]
+    },
+    {
+      "id": "out-cmir",
+      "name": "Customer material info record",
+      "description": "Resolves the customer-specific material number for a product so the customer sees their own part number.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "DIRECT",
+      "protocols": ["ODATA"], "formats": ["JSON"], "auth": "OAUTH2_SAML_BEARER",
+      "businessObject": "CMIR", "domain": "Master Data",
+      "sourceSystem": "Commerce", "targetSystem": "ERP",
+      "relatedArtifacts": [{ "kind": "SERVICE", "name": "CustomerMaterialResolutionService", "system": "Commerce" }],
+      "tags": ["cmir", "material", "customer-specific"]
+    },
+    {
+      "id": "out-order-history",
+      "name": "Order history",
+      "description": "Reads historical orders from the ERP for the account self-service area.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "MIDDLEWARE",
+      "protocols": ["ODATA"], "formats": ["JSON"], "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "businessObject": "Order", "domain": "Order Management",
+      "sourceSystem": "Commerce", "targetSystem": "ERP", "middleware": "Integration Platform",
+      "relatedArtifacts": [{ "kind": "FACADE", "name": "OrderHistoryFacade", "system": "Commerce" }],
+      "tags": ["order", "history", "self-service"]
+    }
+  ],
+
+  "flows": [
+    {
+      "id": "flow-create-order",
+      "name": "Create Order",
+      "summary": "A confirmed commerce order becomes a sales order in the ERP.",
+      "direction": "OUTBOUND", "style": "ASYNC", "topology": "MIDDLEWARE",
+      "businessObject": "Order",
+      "interfaceIds": ["out-order-create"],
+      "tags": ["order", "create", "critical-path"],
+      "stages": [
+        {
+          "id": "s1", "name": "Order placed", "kind": "SOURCE", "owner": "COMMERCE",
+          "purpose": "The order is confirmed in commerce and becomes eligible for export.",
+          "input": "Cart and customer context", "output": "Order domain model",
+          "possibleErrors": [
+            { "code": "ORDER_INCOMPLETE", "title": "Order missing required data", "severity": "HIGH", "errorPatternId": "err-missing-mandatory" }
+          ],
+          "debugTips": ["Confirm the order reached a state that triggers export, not just a saved state."],
+          "logLocations": ["Commerce application log", "Order process log"],
+          "relatedClasses": [{ "kind": "MODEL", "name": "OrderModel", "system": "Commerce" }],
+          "optional": false
+        },
+        {
+          "id": "s2", "name": "Convert to DTO", "kind": "CONVERSION", "owner": "COMMERCE",
+          "purpose": "Converters and populators translate the domain model into a transport DTO. A field that no populator writes is silently absent downstream.",
+          "input": "Order domain model", "output": "Order DTO",
+          "possibleErrors": [
+            { "code": "POPULATOR_NPE", "title": "Populator failed on a null attribute", "severity": "HIGH", "errorPatternId": "err-null-pointer" },
+            { "code": "CONVERTER_MISSING", "title": "No converter registered for the type", "severity": "HIGH", "errorPatternId": "err-spring-bean" }
+          ],
+          "debugTips": [
+            "Check the populator list for the converter bean — a new field usually needs a new populator, not a converter change.",
+            "A field present in the model but absent from the payload almost always means a missing populator."
+          ],
+          "logLocations": ["Commerce application log"],
+          "relatedClasses": [
+            { "kind": "CONVERTER", "name": "OrderToTargetConverter", "system": "Commerce" },
+            { "kind": "POPULATOR", "name": "OrderHeaderPopulator", "system": "Commerce" }
+          ],
+          "optional": false
+        },
+        {
+          "id": "s3", "name": "Build payload", "kind": "PAYLOAD_BUILD", "owner": "COMMERCE",
+          "purpose": "The DTO is serialised to the agreed wire format and envelope.",
+          "input": "Order DTO", "output": "Request payload", "format": "XML",
+          "possibleErrors": [
+            { "code": "SERIALIZATION_FAILED", "title": "Payload could not be serialised", "severity": "HIGH", "errorPatternId": "err-serialization" }
+          ],
+          "debugTips": ["Compare the produced payload against the agreed schema in the Payload Explorer before blaming the receiver."],
+          "logLocations": ["Commerce application log"],
+          "relatedClasses": [{ "kind": "DTO", "name": "SalesOrderRequest", "system": "Commerce" }],
+          "optional": false
+        },
+        {
+          "id": "s4", "name": "Send to middleware", "kind": "TRANSPORT", "owner": "COMMERCE",
+          "purpose": "The payload is transmitted over the configured channel with the configured credentials.",
+          "input": "Request payload", "output": "Transport acknowledgement", "protocol": "SOAP",
+          "possibleErrors": [
+            { "code": "AUTH_FAILED", "title": "Authentication rejected", "severity": "CRITICAL", "errorPatternId": "err-auth-failed" },
+            { "code": "TIMEOUT", "title": "Call timed out", "severity": "HIGH", "errorPatternId": "err-timeout" }
+          ],
+          "debugTips": [
+            "A 401 here is almost always credentials or an expired token, not the payload.",
+            "Correlate by correlation ID rather than by timestamp — retries make timestamps misleading."
+          ],
+          "logLocations": ["Commerce outbound log", "Middleware message log"],
+          "relatedClasses": [],
+          "optional": false
+        },
+        {
+          "id": "s5", "name": "Middleware processing", "kind": "MIDDLEWARE", "owner": "MIDDLEWARE",
+          "purpose": "The integration platform validates, enriches and routes the message.",
+          "input": "Request payload", "output": "Routed message",
+          "possibleErrors": [
+            { "code": "SCHEMA_VALIDATION", "title": "Payload failed schema validation", "severity": "HIGH", "errorPatternId": "err-xsd-validation" },
+            { "code": "SCRIPT_FAILED", "title": "Transformation script raised an error", "severity": "HIGH", "errorPatternId": "err-script-failure" }
+          ],
+          "debugTips": ["Read the message-processing log before the target system's log — most failures are caught here first."],
+          "logLocations": ["Middleware message monitor"],
+          "relatedClasses": [],
+          "optional": true
+        },
+        {
+          "id": "s6", "name": "Mapping", "kind": "TRANSFORMATION", "owner": "MIDDLEWARE",
+          "purpose": "Source fields are mapped to target fields. Unmapped source fields are dropped silently, which is why the Mapping Explorer flags them.",
+          "input": "Routed message", "output": "Target-format document",
+          "possibleErrors": [
+            { "code": "MAPPING_FAILED", "title": "Mapping could not resolve a field", "severity": "HIGH", "errorPatternId": "err-mapping-failed" }
+          ],
+          "debugTips": [
+            "A field that arrives empty at the target is usually unmapped rather than empty at source.",
+            "Check the Mapping Explorer for MISSING and RENAMED links on this interface."
+          ],
+          "logLocations": ["Middleware message monitor"],
+          "relatedClasses": [],
+          "optional": true
+        },
+        {
+          "id": "s7", "name": "Target system", "kind": "TARGET", "owner": "TARGET",
+          "purpose": "The ERP validates the document against its own master data and creates the sales order.",
+          "input": "Target-format document", "output": "Document number or rejection",
+          "possibleErrors": [
+            { "code": "PARTNER_MISSING", "title": "Customer or partner not found", "severity": "HIGH", "errorPatternId": "err-partner-missing" },
+            { "code": "MATERIAL_MISSING", "title": "Material not found", "severity": "HIGH", "errorPatternId": "err-material-missing" },
+            { "code": "PLANT_MISSING", "title": "Plant not determined", "severity": "HIGH", "errorPatternId": "err-plant-missing" }
+          ],
+          "debugTips": [
+            "These are master-data problems, not integration problems. Confirm the record exists in the target before changing any mapping.",
+            "Reproduce the same document manually in the target system — if it fails there too, the payload is not the cause."
+          ],
+          "logLocations": ["Target application log"],
+          "relatedClasses": [],
+          "optional": false
+        },
+        {
+          "id": "s8", "name": "Acknowledgement", "kind": "ACKNOWLEDGEMENT", "owner": "COMMERCE",
+          "purpose": "The document number or the rejection is written back so the order reflects reality.",
+          "input": "Target response", "output": "Updated order",
+          "possibleErrors": [
+            { "code": "ACK_LOST", "title": "Acknowledgement never arrived", "severity": "MEDIUM", "errorPatternId": "err-timeout" }
+          ],
+          "debugTips": ["An order stuck without a document number usually means the acknowledgement path failed, not the send."],
+          "logLocations": ["Commerce order process log"],
+          "relatedClasses": [],
+          "optional": false
+        }
+      ],
+      "branches": [
+        { "id": "b1", "label": "Retry on transport failure", "fromStageId": "s4", "toStageId": "s4", "condition": "Transport error or 5xx", "kind": "RETRY" },
+        { "id": "b2", "label": "Route to error queue", "fromStageId": "s5", "toStageId": "s8", "condition": "Validation failed after retries", "kind": "ERROR" }
+      ]
+    },
+    {
+      "id": "flow-price-import",
+      "name": "Price Import",
+      "summary": "A delimited price file is picked up and applied to commerce. Three stages, no middleware — this is what a file-only landscape actually looks like.",
+      "direction": "INBOUND", "style": "BATCH", "topology": "FILE_BASED",
+      "businessObject": "Price",
+      "interfaceIds": ["in-price"],
+      "tags": ["price", "csv", "batch"],
+      "stages": [
+        {
+          "id": "p1", "name": "File produced", "kind": "SOURCE", "owner": "EXTERNAL",
+          "purpose": "The source system exports current condition prices to a delimited file.",
+          "input": "Condition records", "output": "Price file", "format": "CSV",
+          "possibleErrors": [
+            { "code": "FILE_MISSING", "title": "Expected file never arrived", "severity": "HIGH", "errorPatternId": "err-file-missing" }
+          ],
+          "debugTips": ["Check the drop location and the file's timestamp before assuming the import failed — no file is a different problem from a bad file."],
+          "logLocations": ["Transfer server log"],
+          "relatedClasses": [],
+          "optional": false
+        },
+        {
+          "id": "p2", "name": "Transfer", "kind": "TRANSPORT", "owner": "EXTERNAL",
+          "purpose": "The file lands on the shared location commerce polls.",
+          "input": "Price file", "output": "File at the agreed path", "protocol": "SFTP",
+          "possibleErrors": [
+            { "code": "AUTH_FAILED", "title": "Transfer credentials rejected", "severity": "HIGH", "errorPatternId": "err-auth-failed" }
+          ],
+          "debugTips": ["A partial file usually means the producer wrote in place instead of writing to a temporary name and renaming."],
+          "logLocations": ["Transfer server log"],
+          "relatedClasses": [],
+          "optional": false
+        },
+        {
+          "id": "p3", "name": "Import job", "kind": "PERSISTENCE", "owner": "COMMERCE",
+          "purpose": "A scheduled job parses each row, validates it and writes the price. Partial success is normal: bad rows are rejected individually.",
+          "input": "Price file", "output": "Updated price rows", "format": "CSV",
+          "possibleErrors": [
+            { "code": "NO_COLUMN", "title": "Expected column not found", "severity": "HIGH", "errorPatternId": "err-no-column" },
+            { "code": "UNKNOWN_PROPERTY", "title": "Header does not match a known attribute", "severity": "HIGH", "errorPatternId": "err-unknown-property" },
+            { "code": "CATALOG_VERSION_MISSING", "title": "Catalogue version not resolved", "severity": "HIGH", "errorPatternId": "err-catalogversion-missing" }
+          ],
+          "debugTips": [
+            "A 'no column found' error is a header mismatch: compare the file's header row against the import mapping, not against the database.",
+            "Check the rejected-row report before re-running — a re-run repeats the same rejections."
+          ],
+          "logLocations": ["Commerce cron job log", "Import rejection report"],
+          "relatedClasses": [{ "kind": "CRONJOB", "name": "PriceImportCronJob", "system": "Commerce" }],
+          "optional": false
+        }
+      ],
+      "branches": [
+        { "id": "pb1", "label": "Rejected rows written to report", "fromStageId": "p3", "toStageId": "p3", "condition": "Row failed validation", "kind": "ERROR" }
+      ]
+    },
+    {
+      "id": "flow-invoice",
+      "name": "Invoice",
+      "summary": "Invoice headers and PDF documents are read on demand for the account area.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "MIDDLEWARE",
+      "businessObject": "Invoice",
+      "interfaceIds": ["out-invoice"],
+      "tags": ["invoice", "documents"],
+      "stages": [
+        {
+          "id": "i1", "name": "Request invoices", "kind": "SOURCE", "owner": "COMMERCE",
+          "purpose": "The account area asks for invoices for an order or a date range.",
+          "input": "Order or account context", "output": "Invoice query",
+          "possibleErrors": [], "debugTips": [], "logLocations": ["Commerce application log"],
+          "relatedClasses": [{ "kind": "FACADE", "name": "InvoiceFacade", "system": "Commerce" }],
+          "optional": false
+        },
+        {
+          "id": "i2", "name": "Query target", "kind": "TRANSPORT", "owner": "MIDDLEWARE",
+          "purpose": "The query is forwarded to the ERP's invoice service.",
+          "input": "Invoice query", "output": "Invoice headers", "protocol": "ODATA",
+          "possibleErrors": [
+            { "code": "TIMEOUT", "title": "Query timed out", "severity": "HIGH", "errorPatternId": "err-timeout" },
+            { "code": "EDMX_MISMATCH", "title": "Service metadata does not match the client", "severity": "HIGH", "errorPatternId": "err-edmx-mismatch" }
+          ],
+          "debugTips": ["An EDMX mismatch after a target upgrade is a contract change, not a bug — regenerate the client metadata."],
+          "logLocations": ["Middleware message monitor"],
+          "relatedClasses": [], "optional": true
+        },
+        {
+          "id": "i3", "name": "Fetch document", "kind": "TRANSPORT", "owner": "TARGET",
+          "purpose": "The rendered invoice document is retrieved as a binary.",
+          "input": "Invoice number", "output": "PDF document", "format": "PDF",
+          "possibleErrors": [
+            { "code": "DOC_NOT_FOUND", "title": "Document not available yet", "severity": "MEDIUM", "errorPatternId": "err-invoice-failure" }
+          ],
+          "debugTips": ["An invoice header without a document usually means the document has not been rendered in the target yet."],
+          "logLocations": ["Target application log"],
+          "relatedClasses": [], "optional": false
+        }
+      ],
+      "branches": []
+    },
+    {
+      "id": "flow-customer-sync",
+      "name": "Customer Sync",
+      "summary": "Customer and business partner records are kept aligned between the ERP and commerce.",
+      "direction": "INBOUND", "style": "ASYNC", "topology": "MIDDLEWARE",
+      "businessObject": "Customer",
+      "interfaceIds": ["in-customer"],
+      "tags": ["customer", "master-data"],
+      "stages": [
+        {
+          "id": "c1", "name": "Change event", "kind": "SOURCE", "owner": "EXTERNAL",
+          "purpose": "The ERP emits a customer or partner change.",
+          "input": "Master data change", "output": "Change document",
+          "possibleErrors": [
+            { "code": "IDOC_FAILURE", "title": "Document could not be produced", "severity": "HIGH", "errorPatternId": "err-idoc-failure" }
+          ],
+          "debugTips": [], "logLocations": ["Target application log"], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "c2", "name": "Transform", "kind": "TRANSFORMATION", "owner": "MIDDLEWARE",
+          "purpose": "The change document is mapped to the commerce integration object structure.",
+          "input": "Change document", "output": "Integration object payload",
+          "possibleErrors": [
+            { "code": "MAPPING_FAILED", "title": "Field could not be mapped", "severity": "HIGH", "errorPatternId": "err-mapping-failed" }
+          ],
+          "debugTips": [], "logLocations": ["Middleware message monitor"], "relatedClasses": [], "optional": true
+        },
+        {
+          "id": "c3", "name": "Persist", "kind": "PERSISTENCE", "owner": "COMMERCE",
+          "purpose": "The inbound integration object validates and writes the record.",
+          "input": "Integration object payload", "output": "Persisted customer",
+          "possibleErrors": [
+            { "code": "UNIQUE_CONSTRAINT", "title": "Duplicate key on write", "severity": "HIGH", "errorPatternId": "err-unique-constraint" },
+            { "code": "INTEGRATION_OBJECT_FAILURE", "title": "Integration object rejected the payload", "severity": "HIGH", "errorPatternId": "err-integration-object" }
+          ],
+          "debugTips": ["A unique-constraint failure here usually means the same record arrived twice, not that the data is wrong."],
+          "logLocations": ["Commerce application log"],
+          "relatedClasses": [{ "kind": "INTEGRATION_OBJECT", "name": "InboundCustomer", "system": "Commerce" }],
+          "optional": false
+        }
+      ],
+      "branches": []
+    },
+    {
+      "id": "flow-product-sync",
+      "name": "Product Sync",
+      "summary": "Product master data is imported into the commerce catalogue.",
+      "direction": "INBOUND", "style": "BATCH", "topology": "FILE_BASED",
+      "businessObject": "Product",
+      "interfaceIds": ["in-product"],
+      "tags": ["product", "catalogue"],
+      "stages": [
+        {
+          "id": "pr1", "name": "Feed produced", "kind": "SOURCE", "owner": "EXTERNAL",
+          "purpose": "The source system exports the product feed.",
+          "input": "Material master", "output": "Product feed", "format": "CSV",
+          "possibleErrors": [], "debugTips": [], "logLocations": [], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "pr2", "name": "Import", "kind": "PERSISTENCE", "owner": "COMMERCE",
+          "purpose": "Rows are applied to the catalogue and staged for approval.",
+          "input": "Product feed", "output": "Catalogue items", "format": "IMPEX",
+          "possibleErrors": [
+            { "code": "CATALOG_VERSION_MISSING", "title": "Catalogue version not resolved", "severity": "HIGH", "errorPatternId": "err-catalogversion-missing" },
+            { "code": "UNKNOWN_PROPERTY", "title": "Unknown attribute in the feed", "severity": "HIGH", "errorPatternId": "err-unknown-property" }
+          ],
+          "debugTips": ["Catalogue version errors are configuration, not data — confirm the target catalogue and version exist for this environment."],
+          "logLocations": ["Commerce cron job log"],
+          "relatedClasses": [{ "kind": "IMPEX", "name": "product-import.impex", "system": "Commerce" }],
+          "optional": false
+        },
+        {
+          "id": "pr3", "name": "Index", "kind": "PERSISTENCE", "owner": "COMMERCE",
+          "purpose": "Updated products are re-indexed so search and listings reflect the change.",
+          "input": "Catalogue items", "output": "Search index",
+          "possibleErrors": [],
+          "debugTips": ["A product correct in the backoffice but missing from search means the import worked and the index did not."],
+          "logLocations": ["Commerce cron job log"], "relatedClasses": [], "optional": true
+        }
+      ],
+      "branches": []
+    },
+    {
+      "id": "flow-shipment",
+      "name": "Shipment",
+      "summary": "Delivery and tracking status is read for dispatched orders.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "MIDDLEWARE",
+      "businessObject": "Shipment",
+      "interfaceIds": ["out-shipment"],
+      "tags": ["shipment", "tracking"],
+      "stages": [
+        {
+          "id": "sh1", "name": "Request status", "kind": "SOURCE", "owner": "COMMERCE",
+          "purpose": "Commerce asks for delivery status for an order.",
+          "input": "Order number", "output": "Status query",
+          "possibleErrors": [], "debugTips": [], "logLocations": [], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "sh2", "name": "Query target", "kind": "TRANSPORT", "owner": "MIDDLEWARE",
+          "purpose": "The query reaches the ERP delivery service.",
+          "input": "Status query", "output": "Delivery and tracking data", "protocol": "ODATA",
+          "possibleErrors": [
+            { "code": "TIMEOUT", "title": "Query timed out", "severity": "MEDIUM", "errorPatternId": "err-timeout" }
+          ],
+          "debugTips": [], "logLocations": ["Middleware message monitor"], "relatedClasses": [], "optional": true
+        }
+      ],
+      "branches": []
+    },
+    {
+      "id": "flow-pricing",
+      "name": "Pricing",
+      "summary": "A basket is priced in real time by the ERP. Direct, synchronous, and on the critical path — latency here is felt by every shopper.",
+      "direction": "OUTBOUND", "style": "SYNC", "topology": "DIRECT",
+      "businessObject": "Pricing",
+      "interfaceIds": ["out-pricing-simulation"],
+      "tags": ["pricing", "latency-sensitive"],
+      "stages": [
+        {
+          "id": "pc1", "name": "Basket priced", "kind": "SOURCE", "owner": "COMMERCE",
+          "purpose": "Commerce needs authoritative prices including customer-specific conditions.",
+          "input": "Basket", "output": "Pricing request",
+          "possibleErrors": [], "debugTips": [], "logLocations": [], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "pc2", "name": "Call target", "kind": "TRANSPORT", "owner": "COMMERCE",
+          "purpose": "The pricing service is called directly, with no middleware in between.",
+          "input": "Pricing request", "output": "Priced basket", "protocol": "ODATA",
+          "possibleErrors": [
+            { "code": "TIMEOUT", "title": "Pricing call timed out", "severity": "CRITICAL", "errorPatternId": "err-timeout" },
+            { "code": "PRICING_FAILURE", "title": "Price could not be determined", "severity": "HIGH", "errorPatternId": "err-pricing-failure" },
+            { "code": "CURRENCY_MISSING", "title": "Currency not determined", "severity": "HIGH", "errorPatternId": "err-currency-missing" }
+          ],
+          "debugTips": [
+            "Because this is synchronous and on the critical path, a slow target is a slow storefront. Check the timeout budget before the payload.",
+            "Confirm there is a fallback price source — a hard failure here should degrade, not blank the basket."
+          ],
+          "logLocations": ["Commerce application log", "Target application log"],
+          "relatedClasses": [{ "kind": "STRATEGY", "name": "ExternalPricingStrategy", "system": "Commerce" }],
+          "optional": false
+        }
+      ],
+      "branches": [
+        { "id": "pcb1", "label": "Fall back to cached price", "fromStageId": "pc2", "toStageId": "pc1", "condition": "Timeout or unavailable", "kind": "FALLBACK" }
+      ]
+    },
+    {
+      "id": "flow-returns",
+      "name": "Returns",
+      "summary": "A return request is raised against a delivered order.",
+      "direction": "OUTBOUND", "style": "ASYNC", "topology": "MIDDLEWARE",
+      "businessObject": "Return",
+      "interfaceIds": ["out-returns"],
+      "tags": ["returns", "after-sales"],
+      "stages": [
+        {
+          "id": "r1", "name": "Return requested", "kind": "SOURCE", "owner": "COMMERCE",
+          "purpose": "A customer or agent raises a return for delivered items.",
+          "input": "Order and line items", "output": "Return request",
+          "possibleErrors": [], "debugTips": [], "logLocations": [], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "r2", "name": "Send to target", "kind": "TRANSPORT", "owner": "MIDDLEWARE",
+          "purpose": "The request is routed to the ERP returns process.",
+          "input": "Return request", "output": "Return document", "protocol": "REST",
+          "possibleErrors": [
+            { "code": "REST_ERROR", "title": "Target rejected the request", "severity": "HIGH", "errorPatternId": "err-rest-error" }
+          ],
+          "debugTips": [], "logLocations": ["Middleware message monitor"], "relatedClasses": [], "optional": true
+        }
+      ],
+      "branches": []
+    },
+    {
+      "id": "flow-inventory",
+      "name": "Inventory",
+      "summary": "Stock levels are published as events and applied to commerce.",
+      "direction": "INBOUND", "style": "ASYNC", "topology": "EVENT_STREAM",
+      "businessObject": "Inventory",
+      "interfaceIds": ["in-inventory"],
+      "tags": ["inventory", "stock"],
+      "stages": [
+        {
+          "id": "iv1", "name": "Stock event", "kind": "SOURCE", "owner": "EXTERNAL",
+          "purpose": "The ERP publishes a stock change.",
+          "input": "Stock movement", "output": "Stock event", "format": "JSON",
+          "possibleErrors": [], "debugTips": [], "logLocations": [], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "iv2", "name": "Broker", "kind": "QUEUE", "owner": "EXTERNAL",
+          "purpose": "The event is retained on a topic for independent consumers.",
+          "input": "Stock event", "output": "Retained event", "protocol": "KAFKA",
+          "possibleErrors": [
+            { "code": "QUEUE_BACKLOG", "title": "Consumer lag growing", "severity": "MEDIUM", "errorPatternId": "err-queue-backlog" }
+          ],
+          "debugTips": ["Stale availability with no errors is usually consumer lag, not a failed message."],
+          "logLocations": ["Broker metrics"], "relatedClasses": [], "optional": false
+        },
+        {
+          "id": "iv3", "name": "Apply", "kind": "PERSISTENCE", "owner": "COMMERCE",
+          "purpose": "Commerce applies the new level and invalidates availability caches.",
+          "input": "Stock event", "output": "Updated stock level",
+          "possibleErrors": [
+            { "code": "PERSISTENCE_FAILURE", "title": "Write failed", "severity": "HIGH", "errorPatternId": "err-persistence" }
+          ],
+          "debugTips": [], "logLocations": ["Commerce application log"],
+          "relatedClasses": [{ "kind": "SERVICE", "name": "StockLevelUpdateService", "system": "Commerce" }],
+          "optional": false
+        }
+      ],
+      "branches": []
+    }
+  ],
+
+  "mappingSets": [
+    {
+      "id": "map-order-out",
+      "name": "Order → Sales order",
+      "interfaceId": "out-order-create",
+      "businessObject": "Order",
+      "direction": "OUTBOUND",
+      "version": "1.4.0",
+      "layers": ["Commerce attribute", "DTO", "Payload field", "Middleware mapping", "Target field"],
+      "links": [
+        { "id": "m1", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "nodes": [
+            { "layer": "Commerce attribute", "field": "order.code", "type": "String" },
+            { "layer": "DTO", "field": "salesOrder.reference", "type": "String" },
+            { "layer": "Payload field", "field": "SalesOrder/Reference", "type": "string" },
+            { "layer": "Middleware mapping", "field": "Reference → PurchOrdNo" },
+            { "layer": "Target field", "field": "PurchaseOrderByCustomer", "type": "CHAR35" }
+          ] },
+        { "id": "m2", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "nodes": [
+            { "layer": "Commerce attribute", "field": "order.user.uid", "type": "String" },
+            { "layer": "DTO", "field": "salesOrder.soldTo", "type": "String" },
+            { "layer": "Payload field", "field": "SalesOrder/SoldToParty", "type": "string" },
+            { "layer": "Middleware mapping", "field": "SoldToParty → KUNNR" },
+            { "layer": "Target field", "field": "SoldToParty", "type": "CHAR10" }
+          ] },
+        { "id": "m3", "status": "MISSING", "required": true, "confidence": "HIGH",
+          "notes": "Present in the DTO but no middleware mapping exists, so the target receives nothing. This is the failure mode that reaches production silently.",
+          "nodes": [
+            { "layer": "Commerce attribute", "field": "order.deliveryMode.code", "type": "String" },
+            { "layer": "DTO", "field": "salesOrder.shippingCondition", "type": "String" },
+            { "layer": "Payload field", "field": "SalesOrder/ShippingCondition", "type": "string" },
+            { "layer": "Middleware mapping", "field": "— not mapped —" },
+            { "layer": "Target field", "field": "ShippingCondition", "type": "CHAR2" }
+          ] },
+        { "id": "m4", "status": "RENAMED", "required": false, "confidence": "MEDIUM",
+          "transformation": "concat(street, ' ', houseNumber)",
+          "notes": "Target renamed this field in its latest release; the mapping still uses the old name.",
+          "nodes": [
+            { "layer": "Commerce attribute", "field": "order.deliveryAddress.line1", "type": "String" },
+            { "layer": "DTO", "field": "salesOrder.shipTo.street", "type": "String" },
+            { "layer": "Payload field", "field": "SalesOrder/ShipTo/Street", "type": "string" },
+            { "layer": "Middleware mapping", "field": "Street → STRAS (was STREET)" },
+            { "layer": "Target field", "field": "StreetName", "type": "CHAR60" }
+          ] },
+        { "id": "m5", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "transformation": "round(2)",
+          "nodes": [
+            { "layer": "Commerce attribute", "field": "entry.basePrice", "type": "BigDecimal" },
+            { "layer": "DTO", "field": "item.netPrice", "type": "BigDecimal" },
+            { "layer": "Payload field", "field": "Item/NetPrice", "type": "decimal" },
+            { "layer": "Middleware mapping", "field": "NetPrice → NETWR" },
+            { "layer": "Target field", "field": "NetAmount", "type": "CURR" }
+          ] },
+        { "id": "m6", "status": "UNMAPPED_SOURCE", "required": false, "confidence": "MEDIUM",
+          "notes": "Commerce sends this but nothing consumes it. Harmless today; misleading when someone assumes it arrives.",
+          "nodes": [
+            { "layer": "Commerce attribute", "field": "order.site.uid", "type": "String" },
+            { "layer": "DTO", "field": "salesOrder.channel", "type": "String" },
+            { "layer": "Payload field", "field": "SalesOrder/Channel", "type": "string" },
+            { "layer": "Middleware mapping", "field": "— dropped —" }
+          ] }
+      ]
+    },
+    {
+      "id": "map-price-in",
+      "name": "Price file → Price row",
+      "interfaceId": "in-price",
+      "businessObject": "Price",
+      "direction": "INBOUND",
+      "version": "2.0.0",
+      "_comment": "Two layers, because that is genuinely all there is. A file-based mapping does not have a DTO or a middleware hop, and padding it out to five columns would be a lie.",
+      "layers": ["File column", "Commerce attribute"],
+      "links": [
+        { "id": "pm1", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "nodes": [
+            { "layer": "File column", "field": "MATNR", "type": "string" },
+            { "layer": "Commerce attribute", "field": "product.code", "type": "String" }
+          ] },
+        { "id": "pm2", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "nodes": [
+            { "layer": "File column", "field": "KBETR", "type": "decimal" },
+            { "layer": "Commerce attribute", "field": "priceRow.price", "type": "BigDecimal" }
+          ] },
+        { "id": "pm3", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "nodes": [
+            { "layer": "File column", "field": "WAERS", "type": "string" },
+            { "layer": "Commerce attribute", "field": "priceRow.currency", "type": "Currency" }
+          ] },
+        { "id": "pm4", "status": "ADDED", "required": false, "confidence": "MEDIUM",
+          "notes": "New column in the latest feed version. No importer handles it yet, so it is ignored on every run.",
+          "nodes": [
+            { "layer": "File column", "field": "VALID_TO", "type": "date" },
+            { "layer": "Commerce attribute", "field": "— not consumed —" }
+          ] },
+        { "id": "pm5", "status": "DELETED", "required": false, "confidence": "HIGH",
+          "notes": "Column removed by the producer. The importer still expects it, which is what raises 'no column found'.",
+          "nodes": [
+            { "layer": "File column", "field": "— removed —" },
+            { "layer": "Commerce attribute", "field": "priceRow.minQuantity", "type": "Long" }
+          ] }
+      ]
+    },
+    {
+      "id": "map-customer-in",
+      "name": "Customer → Commerce customer",
+      "interfaceId": "in-customer",
+      "businessObject": "Customer",
+      "direction": "INBOUND",
+      "version": "1.1.0",
+      "layers": ["Source field", "Middleware mapping", "Integration object", "Commerce attribute"],
+      "links": [
+        { "id": "cm1", "status": "MAPPED", "required": true, "confidence": "HIGH",
+          "nodes": [
+            { "layer": "Source field", "field": "BusinessPartner", "type": "CHAR10" },
+            { "layer": "Middleware mapping", "field": "BusinessPartner → uid" },
+            { "layer": "Integration object", "field": "InboundCustomer.uid" },
+            { "layer": "Commerce attribute", "field": "customer.uid", "type": "String" }
+          ] },
+        { "id": "cm2", "status": "TYPE_CHANGED", "required": true, "confidence": "MEDIUM",
+          "notes": "Source widened this field; commerce still truncates at the old length.",
+          "nodes": [
+            { "layer": "Source field", "field": "OrganizationName", "type": "CHAR80 (was CHAR40)" },
+            { "layer": "Middleware mapping", "field": "OrganizationName → name" },
+            { "layer": "Integration object", "field": "InboundCustomer.name" },
+            { "layer": "Commerce attribute", "field": "customer.name", "type": "String(40)" }
+          ] }
+      ]
+    }
+  ],
+
+  "apis": [
+    {
+      "id": "api-occ-v2", "name": "Commerce Web Services (OCC)", "kind": "OCC",
+      "description": "The storefront-facing REST API. Any change to its contract is felt directly by the storefront.",
+      "basePath": "/occ/v2", "version": "v2", "system": "Commerce",
+      "specFormat": "OPENAPI", "auth": "OAUTH2_AUTH_CODE",
+      "tags": ["storefront", "public"],
+      "contractPaths": ["**/occ/**", "**/*occ*/**/*Controller.java", "**/*WsDTO*.java", "**/*-beans.xml"],
+      "operations": [
+        { "id": "occ-cart-get", "name": "Get cart", "method": "GET", "path": "/{baseSiteId}/users/{userId}/carts/{cartId}", "summary": "Returns the current cart with entries and totals.", "responseFormat": "JSON", "deprecated": false },
+        { "id": "occ-cart-add", "name": "Add to cart", "method": "POST", "path": "/{baseSiteId}/users/{userId}/carts/{cartId}/entries", "summary": "Adds a product to the cart.", "requestFormat": "JSON", "responseFormat": "JSON", "deprecated": false },
+        { "id": "occ-order-place", "name": "Place order", "method": "POST", "path": "/{baseSiteId}/users/{userId}/orders", "summary": "Converts the cart into an order.", "requestFormat": "JSON", "responseFormat": "JSON", "deprecated": false },
+        { "id": "occ-order-history", "name": "Order history", "method": "GET", "path": "/{baseSiteId}/users/{userId}/orders", "summary": "Lists a user's orders.", "responseFormat": "JSON", "deprecated": false },
+        { "id": "occ-product-search", "name": "Product search", "method": "GET", "path": "/{baseSiteId}/products/search", "summary": "Searches the catalogue.", "responseFormat": "JSON", "deprecated": false }
+      ]
+    },
+    {
+      "id": "api-order-inbound", "name": "Sales order service", "kind": "SOAP",
+      "description": "The target system's sales order creation contract.",
+      "version": "1.0", "system": "ERP", "specFormat": "WSDL", "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "tags": ["order", "erp"],
+      "contractPaths": ["**/*SalesOrder*.wsdl", "**/*SalesOrder*.xsd", "**/*SalesOrder*Request*.java"],
+      "operations": [
+        { "id": "so-create", "name": "CreateSalesOrder", "summary": "Creates a sales order from a commerce order.", "requestFormat": "XML", "responseFormat": "XML", "deprecated": false, "samplePayloadId": "pay-order-request" }
+      ]
+    },
+    {
+      "id": "api-invoice-odata", "name": "Billing document service", "kind": "ODATA",
+      "description": "OData service exposing billing documents and their rendered PDFs.",
+      "basePath": "/sap/opu/odata/sap/API_BILLING_DOCUMENT", "version": "0001", "system": "ERP",
+      "specFormat": "EDMX", "auth": "OAUTH2_CLIENT_CREDENTIALS",
+      "tags": ["invoice", "documents"],
+      "contractPaths": ["**/*BillingDocument*.edmx", "**/*Invoice*Client*.java"],
+      "operations": [
+        { "id": "bd-list", "name": "A_BillingDocument", "method": "GET", "path": "/A_BillingDocument", "summary": "Lists billing documents.", "responseFormat": "JSON", "deprecated": false },
+        { "id": "bd-pdf", "name": "GetPDF", "method": "GET", "path": "/A_BillingDocument('{id}')/$value", "summary": "Returns the rendered invoice document.", "responseFormat": "PDF", "deprecated": false }
+      ]
+    },
+    {
+      "id": "api-pricing-odata", "name": "Pricing simulation service", "kind": "ODATA",
+      "description": "Real-time pricing including customer-specific conditions.",
+      "basePath": "/sap/opu/odata/sap/API_SALES_PRICING_SIMULATION", "version": "0001", "system": "ERP",
+      "specFormat": "EDMX", "auth": "OAUTH2_SAML_BEARER",
+      "tags": ["pricing", "latency-sensitive"],
+      "contractPaths": ["**/*Pricing*.edmx", "**/*Pricing*Client*.java", "**/*PricingStrategy*.java"],
+      "operations": [
+        { "id": "ps-simulate", "name": "SimulateSalesPricing", "method": "POST", "path": "/SalesPricingSimulation", "summary": "Prices a basket.", "requestFormat": "JSON", "responseFormat": "JSON", "deprecated": false }
+      ]
+    }
+  ],
+
+  "samplePayloads": [
+    {
+      "id": "pay-order-request", "name": "SalesOrderRequest.xml", "format": "XML",
+      "interfaceId": "out-order-create", "businessObject": "Order", "direction": "OUTBOUND",
+      "description": "Illustrative outbound order payload showing the envelope, header and one item.",
+      "tags": ["order", "outbound", "soap"],
+      "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<SalesOrderRequest xmlns=\"urn:example:sales:v1\">\n  <Header>\n    <Reference>ORD-100482</Reference>\n    <SoldToParty>C-4471</SoldToParty>\n    <ShippingCondition>02</ShippingCondition>\n    <Currency>USD</Currency>\n    <RequestedDeliveryDate>2026-08-14</RequestedDeliveryDate>\n    <ShipTo>\n      <Street>120 Innovation Way</Street>\n      <City>Indianapolis</City>\n      <PostalCode>46204</PostalCode>\n      <Country>US</Country>\n    </ShipTo>\n  </Header>\n  <Items>\n    <Item>\n      <LineNumber>10</LineNumber>\n      <Material>MAT-88213</Material>\n      <Quantity unit=\"EA\">4</Quantity>\n      <NetPrice>128.50</NetPrice>\n      <Plant>1010</Plant>\n    </Item>\n  </Items>\n</SalesOrderRequest>\n"
+    },
+    {
+      "id": "pay-order-response", "name": "SalesOrderResponse.xml", "format": "XML",
+      "interfaceId": "out-order-create", "businessObject": "Order", "direction": "INBOUND",
+      "description": "The acknowledgement returned after a successful create.",
+      "tags": ["order", "acknowledgement"],
+      "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<SalesOrderResponse xmlns=\"urn:example:sales:v1\">\n  <Reference>ORD-100482</Reference>\n  <DocumentNumber>0004500923</DocumentNumber>\n  <Status>CREATED</Status>\n  <Messages/>\n</SalesOrderResponse>\n"
+    },
+    {
+      "id": "pay-order-fault", "name": "SalesOrderFault.xml", "format": "SOAP_ENVELOPE",
+      "interfaceId": "out-order-create", "businessObject": "Order", "direction": "INBOUND",
+      "description": "A representative SOAP fault for a master-data rejection.",
+      "tags": ["order", "fault", "error"],
+      "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">\n  <soap:Body>\n    <soap:Fault>\n      <faultcode>soap:Server</faultcode>\n      <faultstring>Material MAT-88213 not maintained for plant 1010</faultstring>\n      <detail>\n        <ErrorCode>MATERIAL_NOT_FOUND</ErrorCode>\n        <Field>Item/Material</Field>\n      </detail>\n    </soap:Fault>\n  </soap:Body>\n</soap:Envelope>\n"
+    },
+    {
+      "id": "pay-price-feed", "name": "price_conditions.csv", "format": "CSV",
+      "interfaceId": "in-price", "businessObject": "Price", "direction": "INBOUND",
+      "description": "A delimited price feed. Note VALID_TO is present but unconsumed, and MIN_QTY has been dropped by the producer.",
+      "tags": ["price", "csv", "batch"],
+      "content": "MATNR;KBETR;WAERS;VALID_FROM;VALID_TO\nMAT-88213;128.50;USD;2026-08-01;2026-12-31\nMAT-88214;74.00;USD;2026-08-01;2026-12-31\nMAT-88220;1290.00;USD;2026-08-01;2026-12-31\n"
+    },
+    {
+      "id": "pay-customer-json", "name": "InboundCustomer.json", "format": "JSON",
+      "interfaceId": "in-customer", "businessObject": "Customer", "direction": "INBOUND",
+      "description": "Inbound customer payload as the integration object receives it.",
+      "tags": ["customer", "master-data"],
+      "content": "{\n  \"uid\": \"C-4471\",\n  \"name\": \"Northwind Clinical Supplies\",\n  \"currency\": \"USD\",\n  \"addresses\": [\n    {\n      \"type\": \"SHIPPING\",\n      \"street\": \"120 Innovation Way\",\n      \"city\": \"Indianapolis\",\n      \"postalCode\": \"46204\",\n      \"country\": \"US\"\n    }\n  ],\n  \"paymentTerms\": \"NT30\",\n  \"active\": true\n}\n"
+    },
+    {
+      "id": "pay-inventory-event", "name": "StockLevelChanged.json", "format": "JSON",
+      "interfaceId": "in-inventory", "businessObject": "Inventory", "direction": "INBOUND",
+      "description": "A single stock change event as published to the broker.",
+      "tags": ["inventory", "event"],
+      "content": "{\n  \"eventId\": \"7f1c9a30-1c4e-4a1e-9a1a-6f2b0f8d4c11\",\n  \"occurredAt\": \"2026-08-06T09:14:22Z\",\n  \"material\": \"MAT-88213\",\n  \"plant\": \"1010\",\n  \"availableQuantity\": 412,\n  \"unit\": \"EA\"\n}\n"
+    }
+  ],
+
+  "_comment_discovery": "These rules are what turn 'someone edited OrderExportConverter.java' into 'the outbound order interface is impacted' without asking a model. Highest priority wins, and every rule carries the evidence string shown to the user.",
+
+  "discoveryRules": [
+    { "id": "d-order-converter", "priority": 95, "pattern": "**/*Order*{Converter,Populator,Contributor}*.java",
+      "interfaceIds": ["out-order-create"], "mappingSetIds": ["map-order-out"], "artifactKind": "CONVERSION",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Order conversion logic determines what reaches the outbound order payload; a change here can add or silently drop a field." },
+    { "id": "d-order-dto", "priority": 92, "pattern": "**/*{SalesOrder,OrderRequest,OrderExport}*.java",
+      "interfaceIds": ["out-order-create"], "mappingSetIds": ["map-order-out"], "artifactKind": "DTO",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "This type is part of the outbound order contract." },
+    { "id": "d-invoice", "priority": 90, "pattern": "**/*Invoice*.java",
+      "interfaceIds": ["out-invoice"], "apiIds": ["api-invoice-odata"], "artifactKind": "SERVICE",
+      "severity": "MEDIUM", "confidence": "HIGH",
+      "evidence": "Invoice retrieval logic." },
+    { "id": "d-shipment", "priority": 90, "pattern": "**/*{Shipment,Delivery,Tracking}*.java",
+      "interfaceIds": ["out-shipment"], "artifactKind": "SERVICE",
+      "severity": "MEDIUM", "confidence": "HIGH",
+      "evidence": "Shipment and delivery tracking logic." },
+    { "id": "d-pricing", "priority": 93, "pattern": "**/*Pricing*.java",
+      "interfaceIds": ["out-pricing-simulation"], "apiIds": ["api-pricing-odata"], "artifactKind": "SERVICE",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Pricing is synchronous and on the storefront critical path, so a change here is felt by every shopper." },
+    { "id": "d-returns", "priority": 88, "pattern": "**/*Return*.java",
+      "interfaceIds": ["out-returns"], "artifactKind": "SERVICE",
+      "severity": "MEDIUM", "confidence": "MEDIUM",
+      "evidence": "Returns processing logic." },
+    { "id": "d-cmir", "priority": 90, "pattern": "**/*{Cmir,CustomerMaterial}*.java",
+      "interfaceIds": ["out-cmir"], "artifactKind": "SERVICE",
+      "severity": "MEDIUM", "confidence": "HIGH",
+      "evidence": "Customer material info record resolution." },
+    { "id": "d-integration-object", "priority": 96, "pattern": "**/*integrationobject*/**",
+      "interfaceIds": ["in-customer"], "artifactKind": "INTEGRATION_OBJECT",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Integration object definitions describe the inbound contract; a change alters what commerce will accept." },
+    { "id": "d-impex-price", "priority": 94, "pattern": "**/*price*.impex",
+      "interfaceIds": ["in-price"], "mappingSetIds": ["map-price-in"], "artifactKind": "IMPEX",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Price import mapping — the header line here must match the feed's columns exactly." },
+    { "id": "d-impex-product", "priority": 94, "pattern": "**/*product*.impex",
+      "interfaceIds": ["in-product"], "artifactKind": "IMPEX",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Product import mapping." },
+    { "id": "d-impex-any", "priority": 70, "pattern": "**/*.impex",
+      "interfaceIds": ["in-product", "in-price", "in-material"], "artifactKind": "IMPEX",
+      "severity": "MEDIUM", "confidence": "LOW",
+      "evidence": "An ImpEx script participates in file-based import; which feed it serves could not be determined from the path alone." },
+    { "id": "d-items-xml", "priority": 97, "pattern": "**/*-items.xml",
+      "interfaceIds": ["in-customer", "in-product", "out-order-create"], "artifactKind": "TYPE_SYSTEM",
+      "severity": "CRITICAL", "confidence": "HIGH",
+      "evidence": "The type system is the floor of the platform: a model change propagates to every payload, mapping and import that touches the affected type." },
+    { "id": "d-beans-xml", "priority": 91, "pattern": "**/*-beans.xml",
+      "interfaceIds": ["out-order-create", "in-customer"], "apiIds": ["api-occ-v2"], "artifactKind": "DTO",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Bean definitions generate the DTOs used by both the API layer and outbound payload construction." },
+    { "id": "d-occ", "priority": 89, "pattern": "**/*occ*/**/*.java",
+      "apiIds": ["api-occ-v2"], "artifactKind": "API",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "OCC is the storefront-facing contract; a change here is visible to every client of the API." },
+    { "id": "d-wsdl", "priority": 96, "pattern": "**/*.wsdl",
+      "interfaceIds": ["out-order-create"], "apiIds": ["api-order-inbound"], "artifactKind": "CONTRACT",
+      "severity": "CRITICAL", "confidence": "HIGH",
+      "evidence": "A WSDL is a published contract; changing it changes what every consumer must send." },
+    { "id": "d-xsd", "priority": 95, "pattern": "**/*.xsd",
+      "interfaceIds": ["out-order-create"], "artifactKind": "CONTRACT",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "Schema definitions gate payload validation; a stricter schema rejects payloads that used to pass." },
+    { "id": "d-edmx", "priority": 95, "pattern": "**/*.edmx",
+      "apiIds": ["api-invoice-odata", "api-pricing-odata"], "artifactKind": "CONTRACT",
+      "severity": "HIGH", "confidence": "HIGH",
+      "evidence": "OData metadata defines the client's view of the service; a mismatch surfaces at runtime, not at build time." },
+    { "id": "d-groovy", "priority": 85, "pattern": "**/*.groovy",
+      "artifactKind": "SCRIPT", "severity": "MEDIUM", "confidence": "LOW",
+      "evidence": "Scripts frequently carry integration transformation logic, but which interface this one serves could not be determined from the path." },
+    { "id": "d-xslt", "priority": 88, "pattern": "**/*.{xsl,xslt}",
+      "artifactKind": "TRANSFORMATION", "severity": "HIGH", "confidence": "MEDIUM",
+      "evidence": "XSLT transforms payload structure directly." },
+    { "id": "d-csv-fixture", "priority": 60, "pattern": "**/*.csv",
+      "interfaceIds": ["in-price", "in-product", "in-material"], "artifactKind": "DATA",
+      "severity": "LOW", "confidence": "LOW",
+      "evidence": "A delimited file changed. If this is a feed sample, its header must stay aligned with the import mapping." },
+    { "id": "d-properties-integration", "priority": 80, "pattern": "**/*{integration,endpoint,destination}*.properties",
+      "artifactKind": "CONFIGURATION", "severity": "HIGH", "confidence": "MEDIUM",
+      "evidence": "Endpoint and destination configuration decides where messages actually go; a wrong value here fails at runtime in the target environment only." }
+  ]
+}

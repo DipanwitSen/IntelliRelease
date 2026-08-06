@@ -256,8 +256,13 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
     this.notes.load(this.api.getReleaseNotes(this.id()));
   }
 
+  /**
+   * Mirrors the backend gate. RELEASED already implies approval, and DEPLOYED
+   * is not a status — deployment is the separate `deployed` flag, because
+   * "communications went out" and "the code is live" are different facts.
+   */
   protected isApproved(detail: ReleaseDetail): boolean {
-    return detail.deployed || ['APPROVED', 'RELEASED'].includes(detail.status);
+    return detail.status === 'APPROVED' || detail.status === 'RELEASED';
   }
 
   protected build(): void {

@@ -21,21 +21,29 @@ export type ProvenanceClass =
   | 'AI_INFERENCE'
   | 'UNKNOWN';
 
-export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+/**
+ * These four mirror the backend enums exactly — `RiskLevel`, `ReadinessStatus`,
+ * `ReleaseStatus` and the health vocabulary. They are the one place closed
+ * unions are correct, because the values come from Java enums rather than from
+ * an extensible catalogue.
+ *
+ * The risk scale deliberately tops out at HIGH: the risk policy does not model
+ * a fourth level, and inventing a CRITICAL here would mean building UI for a
+ * state the backend can never produce.
+ */
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
-export type ReadinessStatus = 'READY' | 'READY_WITH_WARNINGS' | 'NOT_READY' | 'BLOCKED';
+export type ReadinessStatus = 'READY' | 'READY_WITH_WARNINGS' | 'NOT_READY';
 
 export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN' | 'NOT_CONFIGURED';
 
 /**
- * Mirrors the backend's `ReleaseStatus` enum exactly (see
- * `model/enums/ReleaseStatus.java`) — this one is a closed set, not
- * customer-extensible, so no trailing `| string`. Deployment is tracked
- * separately via `ReleaseSummary.deployed`/`deployedAt`/`deployedBy`, not as
- * a status value: a release can be RELEASED and not yet deployed, or vice
- * versa during a hotfix.
+ * The release lifecycle as the backend actually models it. Note that DEPLOYED
+ * is not a status: deployment is tracked by the separate `deployed` flag,
+ * because RELEASED means "communications went out" and deployment is an
+ * independent, human-asserted fact.
  */
 export type ReleaseStatus =
   | 'DRAFT'
