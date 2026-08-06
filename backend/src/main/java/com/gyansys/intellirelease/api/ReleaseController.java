@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
@@ -105,8 +106,26 @@ public class ReleaseController {
 
     @GetMapping
     @Operation(summary = "List releases for the current tenant, most recently created first")
-    public List<View> list() {
-        return releaseService.list().stream().map(View::summary).toList();
+    public PageResponse<View> list(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) ReleaseStatus status,
+            @RequestParam(required = false) Boolean deployed,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+
+        String term = q == null ? "" : q.trim().toLowerCase();
+
+        List<View> matches = releaseService.list().stream()
+                .filter(release -> term.isEmpty()
+                        || (release.getVersion() + " " + release.getRepoName()).toLowerCase().contains(term))
+                .filter(release -> repo == null || repo.equalsIgnoreCase(release.getRepoName()))
+                .filter(release -> status == null || status == release.getStatus())
+                .filter(release -> deployed == null || deployed == release.isDeployed())
+                .map(View::summary)
+                .toList();
+
+        return PageResponse.slice(matches, page, size);
     }
 
     @GetMapping("/{id}")

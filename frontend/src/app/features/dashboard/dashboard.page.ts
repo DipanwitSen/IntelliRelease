@@ -93,7 +93,7 @@ import { RepositorySummary } from '../../core/models/delivery';
                 <ir-badge
                   [label]="data.delivery.releaseReadiness.status"
                   [tone]="readinessTone(data.delivery.releaseReadiness.status)"
-                  [outlined]="data.delivery.releaseReadiness.status === 'BLOCKED'"
+                  [outlined]="data.delivery.releaseReadiness.status === 'NOT_READY'"
                 />
                 <span class="score">{{ data.delivery.releaseReadiness.score }}<span class="score-of">/100</span></span>
               </div>

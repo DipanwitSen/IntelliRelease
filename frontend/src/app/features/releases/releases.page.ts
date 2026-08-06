@@ -93,11 +93,10 @@ import { readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
             <option value="">Any status</option>
             <option value="DRAFT">Draft</option>
             <option value="BUILT">Built</option>
-            <option value="PENDING_APPROVAL">Pending approval</option>
+            <option value="ANALYZED">Analyzed</option>
+            <option value="NOTES_GENERATED">Notes generated</option>
             <option value="APPROVED">Approved</option>
             <option value="RELEASED">Released</option>
-            <option value="DEPLOYED">Deployed</option>
-            <option value="ROLLED_BACK">Rolled back</option>
           </select>
         </div>
 

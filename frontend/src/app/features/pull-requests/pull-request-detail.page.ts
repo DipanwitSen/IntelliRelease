@@ -95,7 +95,7 @@ import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '
           <section class="grid grid-3">
             <ir-section-card title="Risk" icon="shield">
               <div class="row-2">
-                <ir-badge [label]="detail.riskLevel" [tone]="riskTone(detail.riskLevel)" [outlined]="detail.riskLevel === 'CRITICAL'" />
+                <ir-badge [label]="detail.riskLevel" [tone]="riskTone(detail.riskLevel)" [outlined]="detail.riskLevel === 'HIGH'" />
                 <span class="big-score">{{ detail.riskScore }}</span>
               </div>
               <div class="meter" style="margin-top: var(--space-3)">
