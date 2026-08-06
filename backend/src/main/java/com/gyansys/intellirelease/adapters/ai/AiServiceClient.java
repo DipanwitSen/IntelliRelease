@@ -113,6 +113,22 @@ public class AiServiceClient {
         }
     }
 
+    /**
+     * The AI service's own self-report: which provider and model actually
+     * answered its last reachability check. Null when the service cannot be
+     * reached at all — the caller reports that as unavailable rather than
+     * guessing a provider name.
+     */
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> health() {
+        try {
+            return restClient.get().uri("/healthz").retrieve().body(java.util.Map.class);
+        } catch (RuntimeException exception) {
+            log.warn("AI service /healthz unavailable: {}", exception.getMessage());
+            return null;
+        }
+    }
+
     public String serviceUrl() {
         return config.url();
     }

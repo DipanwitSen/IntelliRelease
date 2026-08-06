@@ -29,14 +29,21 @@ export type ReadinessStatus = 'READY' | 'READY_WITH_WARNINGS' | 'NOT_READY' | 'B
 
 export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN' | 'NOT_CONFIGURED';
 
+/**
+ * Mirrors the backend's `ReleaseStatus` enum exactly (see
+ * `model/enums/ReleaseStatus.java`) — this one is a closed set, not
+ * customer-extensible, so no trailing `| string`. Deployment is tracked
+ * separately via `ReleaseSummary.deployed`/`deployedAt`/`deployedBy`, not as
+ * a status value: a release can be RELEASED and not yet deployed, or vice
+ * versa during a hotfix.
+ */
 export type ReleaseStatus =
   | 'DRAFT'
   | 'BUILT'
-  | 'PENDING_APPROVAL'
+  | 'ANALYZED'
+  | 'NOTES_GENERATED'
   | 'APPROVED'
-  | 'RELEASED'
-  | 'DEPLOYED'
-  | 'ROLLED_BACK';
+  | 'RELEASED';
 
 export type Severity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 

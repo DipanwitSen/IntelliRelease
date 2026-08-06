@@ -14,12 +14,15 @@ import com.gyansys.intellirelease.model.enums.RiskLevel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
@@ -104,9 +107,14 @@ public class ReleaseController {
     }
 
     @GetMapping
-    @Operation(summary = "List releases for the current tenant, most recently created first")
-    public List<View> list() {
-        return releaseService.list().stream().map(View::summary).toList();
+    @Operation(summary = "Page of releases for the current tenant, most recently created first")
+    public PageResponse<View> list(@RequestParam(defaultValue = "0") int page,
+                                   @RequestParam(defaultValue = "50") int size) {
+        int safeSize = size <= 0 ? 50 : Math.min(size, 200);
+        var result = releaseService.list(PageRequest.of(Math.max(page, 0), safeSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")));
+        List<View> items = result.getContent().stream().map(View::summary).toList();
+        return PageResponse.of(items, result.getTotalElements(), page, safeSize);
     }
 
     @GetMapping("/{id}")

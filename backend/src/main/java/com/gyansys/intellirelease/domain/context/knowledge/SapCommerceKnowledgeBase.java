@@ -77,6 +77,15 @@ public class SapCommerceKnowledgeBase {
         return knowledgeBase.artifactTypes().size();
     }
 
+    /** Every curated artifact type, keyed by its stable id — powers the Knowledge Base viewer. */
+    public java.util.Map<String, ArtifactTypeDefinition> artifactTypes() {
+        return knowledgeBase.artifactTypes();
+    }
+
+    public Optional<ArtifactTypeDefinition> artifactType(String key) {
+        return Optional.ofNullable(knowledgeBase.artifactTypes().get(key));
+    }
+
     private static SapContextKnowledgeBase load(ObjectMapper objectMapper) {
         try (InputStream in = SapCommerceKnowledgeBase.class.getResourceAsStream(RESOURCE_PATH)) {
             if (in == null) {

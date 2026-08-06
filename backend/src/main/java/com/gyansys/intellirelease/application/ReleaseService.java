@@ -125,6 +125,11 @@ public class ReleaseService {
         return releaseRepository.findByTenantIdOrderByCreatedAtDesc(tenantContext.currentTenantId());
     }
 
+    /** Real total count via Spring Data's Page, for the {@code PageResponse} envelope. */
+    public org.springframework.data.domain.Page<Release> list(org.springframework.data.domain.Pageable pageable) {
+        return releaseRepository.findByTenantId(tenantContext.currentTenantId(), pageable);
+    }
+
     public Optional<Release> get(UUID releaseId) {
         return releaseRepository.findWithPullRequestsByReleaseId(releaseId);
     }

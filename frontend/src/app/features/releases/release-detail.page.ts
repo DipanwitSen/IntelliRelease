@@ -257,7 +257,7 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
   }
 
   protected isApproved(detail: ReleaseDetail): boolean {
-    return ['APPROVED', 'RELEASED', 'DEPLOYED'].includes(detail.status);
+    return detail.deployed || ['APPROVED', 'RELEASED'].includes(detail.status);
   }
 
   protected build(): void {
