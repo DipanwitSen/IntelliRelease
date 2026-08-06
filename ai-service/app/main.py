@@ -23,7 +23,12 @@ app = FastAPI(
 
 @app.get("/healthz")
 def healthz() -> dict[str, object]:
-    return {"status": "UP", "ollamaReachable": providers.is_healthy()}
+    return {
+        "status": "UP",
+        "provider": providers.active_provider_name(),
+        "model": providers.active_model_name(),
+        "providerReachable": providers.is_healthy(),
+    }
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)

@@ -174,10 +174,13 @@ class AnalyzeResponse(BaseModel):
 class PrSummary(Lenient):
     prNumber: int
     title: str | None = None
+    description: str | None = None
     ticketKey: str | None = None
     riskScore: int = 0
     riskLevel: str | None = None
     capabilities: list[str] = Field(default_factory=list)
+    changedFiles: list[str] = Field(default_factory=list)
+    artifactTypes: list[str] = Field(default_factory=list)
 
 
 class ExcludedPr(Lenient):
@@ -202,6 +205,12 @@ class SynthesizeRequest(Lenient):
     deploymentReadiness: ReadinessResult | None = None
 
 
+class ChangelogBullet(BaseModel):
+    prNumber: int | None = None
+    ticketKey: str | None = None
+    text: str
+
+
 class SynthesizeResponse(BaseModel):
     developerNote: str
     qaNote: str
@@ -211,6 +220,7 @@ class SynthesizeResponse(BaseModel):
     knownRisks: str
     knownConsiderations: str
     deploymentRecommendation: str
+    changelogBullets: list[ChangelogBullet] = Field(default_factory=list)
     provenanceClass: str
     fallback: bool
     provider: str

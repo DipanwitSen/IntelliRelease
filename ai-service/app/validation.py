@@ -39,3 +39,44 @@ def require_string_keys(parsed: dict, keys: list[str]) -> dict[str, str]:
             raise InvalidModelOutput(f"missing or empty required key: {key}")
         result[key] = value.strip()
     return result
+
+
+def require_changelog_bullets(
+    parsed: dict, expected_pr_numbers: list[int], key: str = "changelogBullets"
+) -> list[dict]:
+    """One bullet per PR is a list of objects, not a flat string — validated
+    separately from require_string_keys rather than bending that function's
+    contract to cover both shapes.
+
+    Coverage is enforced, not just shape: a model that silently drops a
+    shipped PR from the changelog produces release notes that under-report
+    what went out, the mirror-image failure of announcing something that
+    never shipped. Both are treated as invalid output rather than accepted
+    and shipped to a reader."""
+    value = parsed.get(key)
+    if not isinstance(value, list) or not value:
+        raise InvalidModelOutput(f"missing or empty required key: {key}")
+
+    bullets: list[dict] = []
+    seen_pr_numbers: set[int] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise InvalidModelOutput(f"{key} entries must be objects")
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise InvalidModelOutput(f"{key} entry missing non-empty 'text'")
+        pr_number = item.get("prNumber")
+        if isinstance(pr_number, int):
+            seen_pr_numbers.add(pr_number)
+        bullets.append({
+            "prNumber": pr_number,
+            "ticketKey": item.get("ticketKey"),
+            "text": text.strip(),
+        })
+
+    missing = [pr for pr in expected_pr_numbers if pr not in seen_pr_numbers]
+    if missing:
+        raise InvalidModelOutput(
+            f"{key} is missing bullet(s) for PR(s) {missing} out of {expected_pr_numbers}")
+
+    return bullets

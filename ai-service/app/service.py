@@ -18,7 +18,7 @@ from .prompts import (
     build_synthesis_prompt,
 )
 from .schemas import AnalyzeRequest, AnalyzeResponse, SynthesizeRequest, SynthesizeResponse
-from .validation import InvalidModelOutput, parse_json_object, require_string_keys
+from .validation import InvalidModelOutput, parse_json_object, require_changelog_bullets, require_string_keys
 
 log = logging.getLogger("intellirelease.ai")
 
@@ -28,7 +28,7 @@ def _attempt(prompt: str, required_keys: list[str]) -> dict[str, str] | None:
     try:
         raw = providers.generate(prompt)
     except providers.ProviderUnavailable as exc:
-        log.warning("Ollama unavailable: %s", exc)
+        log.warning("%s unavailable: %s", providers.active_provider_name(), exc)
         return None
 
     try:
@@ -44,6 +44,40 @@ def _attempt(prompt: str, required_keys: list[str]) -> dict[str, str] | None:
         return None
 
 
+def _attempt_synthesis(
+    prompt: str, expected_pr_numbers: list[int]
+) -> tuple[dict[str, str], list[dict]] | None:
+    """Like _attempt, but the release synthesis response also carries a
+    changelogBullets list (one object per PR) alongside the flat string
+    fields, so both halves — including full PR coverage — have to validate
+    before the model's answer is trusted."""
+
+    def parse(text: str) -> tuple[dict[str, str], list[dict]]:
+        parsed = parse_json_object(text)
+        fields = require_string_keys(parsed, SYNTHESIZE_KEYS)
+        bullets = require_changelog_bullets(parsed, expected_pr_numbers)
+        return fields, bullets
+
+    try:
+        raw = providers.generate(prompt)
+    except providers.ProviderUnavailable as exc:
+        log.warning("%s unavailable: %s", providers.active_provider_name(), exc)
+        return None
+
+    try:
+        return parse(raw)
+    except InvalidModelOutput as exc:
+        log.info("Model output failed validation, retrying once: %s", exc)
+
+    try:
+        repaired = providers.generate(
+            build_repair_prompt(prompt, raw, SYNTHESIZE_KEYS + ["changelogBullets"]))
+        return parse(repaired)
+    except (providers.ProviderUnavailable, InvalidModelOutput) as exc:
+        log.warning("Repair retry failed, falling back to deterministic template: %s", exc)
+        return None
+
+
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     fields = _attempt(build_analysis_prompt(request), ANALYZE_KEYS)
     if fields is None:
@@ -53,22 +87,25 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         **fields,
         provenanceClass="AI_INFERENCE",
         fallback=False,
-        provider="ollama",
-        model=providers.OLLAMA_MODEL,
+        provider=providers.active_provider_name(),
+        model=providers.active_model_name(),
         tokensUsed=None,
     )
 
 
 def synthesize(request: SynthesizeRequest) -> SynthesizeResponse:
-    fields = _attempt(build_synthesis_prompt(request), SYNTHESIZE_KEYS)
-    if fields is None:
+    expected_pr_numbers = [pr.prNumber for pr in request.pullRequests]
+    result = _attempt_synthesis(build_synthesis_prompt(request), expected_pr_numbers)
+    if result is None:
         return narrator.narrate_release(request)
+    fields, bullets = result
 
     return SynthesizeResponse(
         **fields,
+        changelogBullets=bullets,
         provenanceClass="AI_INFERENCE",
         fallback=False,
-        provider="ollama",
-        model=providers.OLLAMA_MODEL,
+        provider=providers.active_provider_name(),
+        model=providers.active_model_name(),
         tokensUsed=None,
     )

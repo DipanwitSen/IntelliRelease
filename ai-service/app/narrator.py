@@ -11,7 +11,7 @@ provenanceClass="RULE_OUTPUT" and fallback=True.
 """
 from __future__ import annotations
 
-from .schemas import AnalyzeRequest, AnalyzeResponse, SynthesizeRequest, SynthesizeResponse
+from .schemas import AnalyzeRequest, AnalyzeResponse, ChangelogBullet, SynthesizeRequest, SynthesizeResponse
 
 # Mirrors SapCapability's displayName() in
 # backend/.../model/enums/SapCapability.java. Jackson serialises the enum by
@@ -199,6 +199,11 @@ def narrate_release(request: SynthesizeRequest) -> SynthesizeResponse:
         f"{excluded} This summary is generated from the changes that actually shipped."
     )
 
+    changelog = [
+        ChangelogBullet(prNumber=pr.prNumber, ticketKey=pr.ticketKey, text=_changelog_text(pr))
+        for pr in request.pullRequests
+    ]
+
     return SynthesizeResponse(
         developerNote=developer,
         qaNote=qa,
@@ -208,9 +213,25 @@ def narrate_release(request: SynthesizeRequest) -> SynthesizeResponse:
         knownRisks=_explain_risk(request.aggregateRisk),
         knownConsiderations=drift_line,
         deploymentRecommendation=_explain_readiness(request.deploymentReadiness),
+        changelogBullets=changelog,
         provenanceClass="RULE_OUTPUT",
         fallback=True,
         provider="deterministic-template",
         model="none",
         tokensUsed=0,
     )
+
+
+def _changelog_text(pr) -> str:
+    """Title first, then the description's first sentence when it adds
+    something the title didn't already say — mirrors DeterministicNarrator's
+    Java-side fallback so both sides of the boundary produce the same quality
+    of prose when the model is unavailable."""
+    title = _safe(pr.title)
+    description = (pr.description or "").strip()
+    if not description or description.lower() == title.lower():
+        return title
+    first_sentence = description.split(". ")[0].strip()
+    if len(first_sentence) > 200:
+        first_sentence = first_sentence[:200] + "…"
+    return f"{title} — {first_sentence}"
