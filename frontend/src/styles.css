@@ -277,6 +277,71 @@ button:disabled {
   border-color: var(--accent);
 }
 
+/* --- releases --- */
+
+.releases-header {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.release-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+}
+
+.release-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.release-form input {
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.deployed-badge {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.release-notes {
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.9rem;
+}
+
+.release-notes-title {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.release-notes ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.release-notes li {
+  margin-bottom: 0.4rem;
+  line-height: 1.4;
+}
+
 .ai-fallback-note {
   padding: 0.5rem 0.75rem;
   border-radius: 6px;

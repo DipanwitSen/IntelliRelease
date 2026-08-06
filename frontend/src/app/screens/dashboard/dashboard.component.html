@@ -126,4 +126,201 @@
       <p class="hint" *ngIf="!pr.aiSummary">No analysis yet — the background job may still be running.</p>
     </ng-container>
   </div>
+
+  <header class="dashboard-header releases-header">
+    <h2>Releases</h2>
+    <div class="dashboard-actions">
+      <button type="button" (click)="refreshReleases()">Refresh</button>
+      <button type="button" (click)="showReleaseForm = !showReleaseForm">
+        {{ showReleaseForm ? 'Cancel' : 'New release' }}
+      </button>
+    </div>
+  </header>
+
+  <p class="error" *ngIf="releaseError">{{ releaseError }}</p>
+
+  <form class="release-form" *ngIf="showReleaseForm" (ngSubmit)="createRelease()">
+    <label>
+      Repo
+      <input type="text" name="repoName" [(ngModel)]="newRelease.repoName" placeholder="owner/repo" required />
+    </label>
+    <label>
+      Version
+      <input type="text" name="version" [(ngModel)]="newRelease.version" placeholder="2026.1" required />
+    </label>
+    <label>
+      From ref
+      <input type="text" name="fromRef" [(ngModel)]="newRelease.fromRef" placeholder="v2026.0" required />
+    </label>
+    <label>
+      To ref
+      <input type="text" name="toRef" [(ngModel)]="newRelease.toRef" placeholder="main" required />
+    </label>
+    <button type="submit" [disabled]="creatingRelease">
+      {{ creatingRelease ? 'Creating…' : 'Create release' }}
+    </button>
+  </form>
+
+  <p *ngIf="releasesLoading">Loading…</p>
+
+  <p *ngIf="!releasesLoading && releases.length === 0">No releases created yet.</p>
+
+  <table class="pr-table" *ngIf="!releasesLoading && releases.length > 0">
+    <thead>
+      <tr>
+        <th>Version</th>
+        <th>Repo</th>
+        <th>Refs</th>
+        <th>Status</th>
+        <th>Deployment</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let release of releases" (click)="openRelease(release)" class="pr-row">
+        <td>{{ release.version }}</td>
+        <td>{{ release.repoName }}</td>
+        <td class="hint">{{ release.fromRef.substring(0, 10) }} → {{ release.toRef }}</td>
+        <td>{{ release.status }}</td>
+        <td>
+          <span class="badge deployed-badge" *ngIf="release.deployed">
+            deployed {{ release.deployedAt | date: 'short' }} by {{ release.deployedBy }}
+          </span>
+          <span class="hint" *ngIf="!release.deployed">not confirmed deployed</span>
+        </td>
+        <td>
+          <button
+            type="button"
+            *ngIf="!release.deployed"
+            (click)="$event.stopPropagation(); deployRelease(release)"
+            [disabled]="deployingReleaseId === release.releaseId"
+          >
+            Mark deployed
+          </button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="detail-panel" *ngIf="releaseDetailLoading || selectedRelease">
+    <button type="button" class="close-detail" (click)="closeReleaseDetail()">Close</button>
+
+    <p *ngIf="releaseDetailLoading">Loading detail…</p>
+
+    <ng-container *ngIf="selectedRelease as release">
+      <h3>{{ release.version }} — {{ release.repoName }}</h3>
+      <p class="hint">{{ release.fromRef }} → {{ release.toRef }} · status {{ release.status }}</p>
+
+      <div class="ai-fallback-note" *ngIf="!release.pullRequests">
+        Not built yet — resolve its contents from Git before viewing PRs or generating notes.
+      </div>
+
+      <div class="dashboard-actions" style="margin: 1rem 0;">
+        <button type="button" (click)="buildRelease()" [disabled]="building">
+          {{ building ? 'Resolving from Git…' : 'Build from Git' }}
+        </button>
+        <button type="button" (click)="loadNotes()" [disabled]="loadingNotes || !release.pullRequests">
+          {{ loadingNotes ? 'Generating…' : 'Generate release notes' }}
+        </button>
+        <button
+          type="button"
+          *ngIf="!release.deployed"
+          (click)="deployRelease(release)"
+          [disabled]="deployingReleaseId === release.releaseId"
+        >
+          Mark deployed
+        </button>
+        <span class="badge deployed-badge" *ngIf="release.deployed">
+          deployed {{ release.deployedAt | date: 'short' }} by {{ release.deployedBy }}
+        </span>
+      </div>
+
+      <div class="dashboard-actions" style="margin: 1rem 0;">
+        <button
+          type="button"
+          *ngIf="release.status !== 'APPROVED'"
+          (click)="approveRelease()"
+          [disabled]="approving || !release.pullRequests"
+        >
+          {{ approving ? 'Approving…' : 'Approve for client communication' }}
+        </button>
+        <span class="badge deployed-badge" *ngIf="release.status === 'APPROVED'">approved</span>
+        <button
+          type="button"
+          (click)="sendNotifications()"
+          [disabled]="sendingNotifications || release.status !== 'APPROVED'"
+        >
+          {{ sendingNotifications ? 'Sending…' : 'Send to Outlook + Teams' }}
+        </button>
+      </div>
+      <p class="hint" *ngIf="release.status !== 'APPROVED'">
+        Sending is blocked until this release is approved — enforced by the backend, not just hidden in the UI.
+      </p>
+
+      <p class="hint" *ngIf="buildNote">{{ buildNote }}</p>
+
+      <div class="artifact-card" *ngIf="notifyResult as result">
+        <p><strong>Notification result</strong> ({{ result.provider }}{{ result.fallback ? ', deterministic fallback' : '' }})</p>
+        <ul>
+          <li *ngFor="let email of result.emails">
+            {{ email.audience }} → {{ email.recipient }}:
+            <span [class]="email.sent ? 'deployed-badge' : 'risk-high'">{{ email.sent ? 'sent' : 'failed' }}</span>
+          </li>
+        </ul>
+        <p class="hint" *ngIf="result.teamsConfigured">
+          Teams: {{ result.teamsSent ? 'posted' : 'failed' }}
+        </p>
+        <p class="hint" *ngIf="!result.teamsConfigured">Teams webhook not configured — skipped.</p>
+      </div>
+
+      <section *ngIf="release.pullRequests as prs">
+        <h4>Included pull requests ({{ prs.length }})</h4>
+        <table class="pr-table">
+          <thead>
+            <tr>
+              <th>PR</th>
+              <th>Title</th>
+              <th>Risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let pr of prs">
+              <td>#{{ pr.prNumber }}</td>
+              <td>{{ pr.title }}</td>
+              <td>
+                <span class="badge" *ngIf="pr.riskLevel" [class]="'risk-' + pr.riskLevel.toLowerCase()">
+                  {{ pr.riskScore }} {{ pr.riskLevel }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section *ngIf="release.excludedPrs as excluded">
+        <h4>Excluded ({{ excluded.length }})</h4>
+        <ul>
+          <li *ngFor="let ex of excluded">
+            {{ ex.title || ('#' + ex.prNumber) }} — {{ ex.reason }}
+          </li>
+        </ul>
+      </section>
+
+      <section *ngIf="notes as n">
+        <h4>Release notes</h4>
+        <p class="hint">
+          {{ n.provider }}{{ n.fallback ? ' (deterministic fallback — AI unavailable)' : ' (AI-generated)' }}
+        </p>
+        <div class="release-notes">
+          <p class="release-notes-title">Release Notes {{ n.version }}</p>
+          <ul>
+            <li *ngFor="let bullet of n.bullets">
+              {{ bullet.text }}
+              <span class="hint" *ngIf="bullet.ticketKey">({{ bullet.ticketKey }})</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+    </ng-container>
+  </div>
 </div>

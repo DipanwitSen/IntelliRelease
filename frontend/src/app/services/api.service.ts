@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { PullRequestDetail, PullRequestSummary } from '../models/pull-request';
+import { BuildResponse, CreateReleaseRequest, NotifyResponse, ReleaseNotes, ReleaseView } from '../models/release';
 
 /**
  * The only class in the frontend allowed to make HTTP calls, and it only ever
@@ -25,5 +26,37 @@ export class ApiService {
 
   getPullRequest(prId: string): Observable<PullRequestDetail> {
     return this.http.get<PullRequestDetail>(`${this.baseUrl}/api/v1/pull-requests/${prId}`);
+  }
+
+  listReleases(): Observable<ReleaseView[]> {
+    return this.http.get<ReleaseView[]>(`${this.baseUrl}/api/v1/releases`);
+  }
+
+  createRelease(request: CreateReleaseRequest): Observable<ReleaseView> {
+    return this.http.post<ReleaseView>(`${this.baseUrl}/api/v1/releases`, request);
+  }
+
+  markReleaseDeployed(releaseId: string): Observable<ReleaseView> {
+    return this.http.post<ReleaseView>(`${this.baseUrl}/api/v1/releases/${releaseId}/deploy`, {});
+  }
+
+  getRelease(releaseId: string): Observable<ReleaseView> {
+    return this.http.get<ReleaseView>(`${this.baseUrl}/api/v1/releases/${releaseId}`);
+  }
+
+  buildRelease(releaseId: string): Observable<BuildResponse> {
+    return this.http.post<BuildResponse>(`${this.baseUrl}/api/v1/releases/${releaseId}/build`, {});
+  }
+
+  getReleaseNotes(releaseId: string): Observable<ReleaseNotes> {
+    return this.http.get<ReleaseNotes>(`${this.baseUrl}/api/v1/releases/${releaseId}/notes`);
+  }
+
+  approveRelease(releaseId: string): Observable<ReleaseView> {
+    return this.http.post<ReleaseView>(`${this.baseUrl}/api/v1/releases/${releaseId}/approve`, {});
+  }
+
+  sendReleaseNotifications(releaseId: string): Observable<NotifyResponse> {
+    return this.http.post<NotifyResponse>(`${this.baseUrl}/api/v1/releases/${releaseId}/notify`, {});
   }
 }
