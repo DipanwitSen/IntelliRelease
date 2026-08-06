@@ -189,33 +189,22 @@ export interface GlossaryTerm {
    middlewareImpact section rather than an invented one.
    ========================================================================= */
 
+/** Mirrors backend AiAnalysisResponse exactly — every field here is prose, nothing else. */
 export interface AiAnalysis {
-  readonly executiveSummary?: string;
   readonly technicalSummary?: string;
-  readonly businessImpact?: string;
-  readonly integrationImpact?: string;
-  readonly commerceImpact?: string;
-  readonly middlewareImpact?: string;
-  readonly targetSystemImpact?: string;
-  readonly changedComponents: readonly ChangedComponent[];
-  readonly changedDtos: readonly string[];
-  readonly changedPayloads: readonly string[];
-  readonly changedApis: readonly string[];
-  readonly changedMappings: readonly string[];
-  readonly changedIntegrationObjects: readonly string[];
-  readonly potentialRisks: readonly AiRisk[];
-  readonly confidenceScore?: number;
-  readonly recommendedTestCases: readonly RecommendedTest[];
-  readonly rollbackStrategy?: string;
-  readonly deploymentNotes?: string;
-  readonly releaseNotes?: AudienceNotes;
-  readonly rootCauseAnalysis?: string;
-  readonly suggestedFixes: readonly SuggestedFix[];
-  readonly relatedDocumentation: readonly DocumentationLink[];
-  readonly model?: AiModelInfo;
+  readonly qaSummary?: string;
+  readonly businessSummary?: string;
+  readonly clientSummary?: string;
+  readonly riskExplanation?: string;
+  readonly regressionGuidance?: string;
+  readonly readinessExplanation?: string;
+  readonly deploymentStrategyExplanation?: string;
+  readonly provenanceClass: ProvenanceClass;
   /** True when the LLM was unavailable and the deterministic narrator produced this instead. */
-  readonly fallbackUsed: boolean;
-  readonly provenance: ProvenanceClass;
+  readonly fallback: boolean;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly tokensUsed?: number;
 }
 
 export interface ChangedComponent {

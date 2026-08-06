@@ -100,6 +100,11 @@ management:
   endpoint:
     health:
       show-details: always
+  health:
+    # MailHog is optional local infra; its absence shouldn't flip the overall
+    # health status to DOWN and block the frontend's login probe.
+    mail:
+      enabled: false
 
 logging:
   pattern:

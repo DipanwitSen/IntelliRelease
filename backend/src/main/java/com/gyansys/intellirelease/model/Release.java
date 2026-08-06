@@ -1,5 +1,6 @@
 package com.gyansys.intellirelease.model;
 
+import com.gyansys.intellirelease.model.enums.DeploymentStrategyType;
 import com.gyansys.intellirelease.model.enums.ReadinessStatus;
 import com.gyansys.intellirelease.model.enums.ReleaseStatus;
 import com.gyansys.intellirelease.model.enums.RiskLevel;
@@ -79,6 +80,19 @@ public class Release {
     @Enumerated(EnumType.STRING)
     @Column(name = "readiness_status", length = 30)
     private ReadinessStatus readinessStatus;
+
+    /**
+     * The deployment strategy the release inherits from its riskiest included
+     * pull request — see {@link com.gyansys.intellirelease.domain.deployment.DeploymentStrategyEngine#aggregate}.
+     * Computed when the release is built, not when created; null until then.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "deployment_strategy")
+    private String deploymentStrategy;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "deployment_strategy_type", length = 20)
+    private DeploymentStrategyType deploymentStrategyType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)

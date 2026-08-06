@@ -1,0 +1,503 @@
+{
+  "$schema": "https://intellirelease.internal/schemas/deployment-strategy-rules.v1.json",
+  "meta": {
+    "name": "IntelliRelease Deployment Strategy Rules",
+    "version": "1.0.0",
+    "purpose": "Maps every SAP Commerce artifact type the Context Engine's knowledge base (sap_context.json) can classify to a deterministic deployment strategy recommendation (ROLLING or MIGRATE), a priority used to resolve conflicts across multiple changed files, and the reasoning/recommended actions a Release Manager sees on the dashboard. Adding a new artifact type here — with no Java change — is enough to teach the Deployment Strategy Engine about it; see docs/deployment-strategy-advisor.md."
+  },
+  "defaultStrategy": "ROLLING",
+  "defaultPriority": 1,
+  "defaultReason": "No deployment rule is configured for this artifact type yet. Defaulting to rolling deployment; add an entry to deployment_strategy_rules.json to give it an explicit recommendation.",
+  "rules": [
+    {
+      "artifactType": "items_xml",
+      "strategy": "MIGRATE",
+      "priority": 100,
+      "reason": "items.xml modifies the SAP Commerce type system — new or changed ItemTypes, attributes or relations require a database schema migration and generated model/DTO regeneration.",
+      "recommendedActions": ["Execute Migrate Deployment", "Perform System Update", "Validate Generated Models", "Execute Smoke Tests"]
+    },
+    {
+      "artifactType": "patch",
+      "strategy": "MIGRATE",
+      "priority": 92,
+      "reason": "A Patch defines a versioned, ordered data migration. It must run as part of a system update, not while old and new application nodes are serving requests side by side.",
+      "recommendedActions": ["Execute Migrate Deployment", "Confirm Patch Ordering", "Run Patches Per Environment", "Execute Smoke Tests"]
+    },
+    {
+      "artifactType": "patch_data",
+      "strategy": "MIGRATE",
+      "priority": 88,
+      "reason": "Patch resource data feeds a versioned data migration and must be applied consistently during a system update.",
+      "recommendedActions": ["Execute Migrate Deployment", "Run Patches Per Environment", "Execute Smoke Tests"]
+    },
+    {
+      "artifactType": "cloud_manifest",
+      "strategy": "MIGRATE",
+      "priority": 82,
+      "reason": "The Cloud Deployment Descriptor changes aspect topology. Nodes on different manifests are not guaranteed compatible, so the whole environment must move together rather than roll node by node.",
+      "recommendedActions": ["Execute Migrate Deployment", "Full Build And Deploy", "Verify Aspect Topology", "Execute Smoke Tests"]
+    },
+    {
+      "artifactType": "extension_set",
+      "strategy": "MIGRATE",
+      "priority": 80,
+      "reason": "Activating or deactivating an extension changes what code and beans exist on a node. Old and new nodes running different extension sets are not a safe rolling pair.",
+      "recommendedActions": ["Execute Migrate Deployment", "Full Build And Deploy", "Verify Every Declared Context Path", "Execute Smoke Tests"]
+    },
+    {
+      "artifactType": "beans_xml",
+      "strategy": "ROLLING",
+      "priority": 22,
+      "reason": "A DTO/bean definition affects the facade layer's data shape, not the database schema. Existing and new nodes can coexist.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "spring_xml",
+      "strategy": "ROLLING",
+      "priority": 18,
+      "reason": "Spring bean wiring is a service-layer configuration change, not a schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "occ_web_spring",
+      "strategy": "ROLLING",
+      "priority": 20,
+      "reason": "OCC web/field-set wiring changes the API surface, not the database. Coordinate with the frontend release, but no schema migration is required.",
+      "recommendedActions": ["Rolling Deployment", "Coordinate Frontend Release", "Smoke Tests"]
+    },
+    {
+      "artifactType": "occ_controller",
+      "strategy": "ROLLING",
+      "priority": 20,
+      "reason": "Controllers are business/orchestration logic only — no database schema changes, no type system changes.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "occ_filter",
+      "strategy": "ROLLING",
+      "priority": 22,
+      "reason": "A request filter changes request-handling logic in the API layer, not persisted data or schema.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "validator",
+      "strategy": "ROLLING",
+      "priority": 18,
+      "reason": "A validator enforces input rules in application code — no database schema changes, no Type System changes.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "facade",
+      "strategy": "ROLLING",
+      "priority": 30,
+      "reason": "Business logic only. No database schema changes, no Type System changes — old and new nodes can coexist.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "service",
+      "strategy": "ROLLING",
+      "priority": 25,
+      "reason": "Service-layer business logic. No database schema or type system impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "dao",
+      "strategy": "ROLLING",
+      "priority": 16,
+      "reason": "A DAO changes how existing data is queried, not the schema it is queried against.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "populator",
+      "strategy": "ROLLING",
+      "priority": 15,
+      "reason": "Populators map already-persisted data onto DTOs — application logic only.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "converter",
+      "strategy": "ROLLING",
+      "priority": 15,
+      "reason": "Converters transform data in memory — application logic only, no schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "interceptor",
+      "strategy": "ROLLING",
+      "priority": 18,
+      "reason": "A persistence interceptor runs application-level logic around save/load — it does not itself change the schema.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "strategy",
+      "strategy": "ROLLING",
+      "priority": 24,
+      "reason": "A pluggable strategy implementation is business logic only.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "hook",
+      "strategy": "ROLLING",
+      "priority": 24,
+      "reason": "A method/persistence hook runs application logic around an existing operation — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "event_or_listener",
+      "strategy": "ROLLING",
+      "priority": 18,
+      "reason": "Event publication/handling is application logic — no schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "business_process",
+      "strategy": "ROLLING",
+      "priority": 26,
+      "reason": "A business process definition changes orchestration flow, not the database schema. Verify in-flight process instances remain compatible.",
+      "recommendedActions": ["Rolling Deployment", "Verify In-Flight Processes", "Smoke Tests"]
+    },
+    {
+      "artifactType": "process_action",
+      "strategy": "ROLLING",
+      "priority": 24,
+      "reason": "A business process action is application logic executed by the process engine — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "cronjob",
+      "strategy": "ROLLING",
+      "priority": 20,
+      "reason": "A CronJob/JobPerformable implementation is application logic. Verify its trigger configuration is still correct after rollout.",
+      "recommendedActions": ["Rolling Deployment", "Verify Trigger Configuration", "Smoke Tests"]
+    },
+    {
+      "artifactType": "key_generator",
+      "strategy": "ROLLING",
+      "priority": 20,
+      "reason": "A key generator implementation is application logic — no schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "solr_config",
+      "strategy": "ROLLING",
+      "priority": 15,
+      "reason": "Solr search configuration does not change the SAP Commerce database schema. A full reindex is required for the new configuration to take effect.",
+      "recommendedActions": ["Rolling Deployment", "Perform Solr Re-index", "Smoke Tests"]
+    },
+    {
+      "artifactType": "solr_value_provider",
+      "strategy": "ROLLING",
+      "priority": 15,
+      "reason": "A Solr field value provider is application logic that runs during indexing — no database schema impact, but affected stores need a reindex.",
+      "recommendedActions": ["Rolling Deployment", "Perform Solr Re-index", "Smoke Tests"]
+    },
+    {
+      "artifactType": "cms_component_type",
+      "strategy": "ROLLING",
+      "priority": 16,
+      "reason": "A CMS component type definition changes application-level configuration, not the underlying database schema.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "cms_content",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "CMS content ImpEx changes data, not schema. Synchronise the affected content catalog after deployment.",
+      "recommendedActions": ["Rolling Deployment", "Synchronise Content Catalog", "Smoke Tests"]
+    },
+    {
+      "artifactType": "impex_general",
+      "strategy": "ROLLING",
+      "priority": 10,
+      "reason": "General ImpEx changes data on the target environment — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "impex_security",
+      "strategy": "ROLLING",
+      "priority": 14,
+      "reason": "Security ImpEx (user groups, access rights, roles) changes authorization data, not the schema — review access changes carefully before rollout.",
+      "recommendedActions": ["Rolling Deployment", "Review Access Rights Changes", "Smoke Tests"]
+    },
+    {
+      "artifactType": "impex_store",
+      "strategy": "ROLLING",
+      "priority": 10,
+      "reason": "Store/site ImpEx changes configuration data, not schema.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "impex_catalog",
+      "strategy": "ROLLING",
+      "priority": 10,
+      "reason": "Product catalog ImpEx changes data, not schema. Synchronise the affected catalog after deployment.",
+      "recommendedActions": ["Rolling Deployment", "Synchronise Product Catalog", "Smoke Tests"]
+    },
+    {
+      "artifactType": "impex_cronjob",
+      "strategy": "ROLLING",
+      "priority": 10,
+      "reason": "CronJob/trigger/retention ImpEx changes scheduling data — no schema change. Verify the schedule before enabling.",
+      "recommendedActions": ["Rolling Deployment", "Verify Trigger Configuration", "Smoke Tests"]
+    },
+    {
+      "artifactType": "impex_integration",
+      "strategy": "ROLLING",
+      "priority": 14,
+      "reason": "Integration setup ImpEx changes configuration data for external connections — no database schema change, coordinate with the integration partner if credentials or endpoints move.",
+      "recommendedActions": ["Rolling Deployment", "Coordinate External Release", "Smoke Tests"]
+    },
+    {
+      "artifactType": "integration_object",
+      "strategy": "ROLLING",
+      "priority": 16,
+      "reason": "An Integration Object / inbound channel / outbound destination is configuration and mapping logic — no SAP Commerce schema change. Coordinate with middleware/ERP.",
+      "recommendedActions": ["Rolling Deployment", "Coordinate External Release", "Smoke Tests"]
+    },
+    {
+      "artifactType": "hot_folder_config",
+      "strategy": "ROLLING",
+      "priority": 12,
+      "reason": "Hot folder / batch import configuration is application-level configuration, not a schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "system_setup",
+      "strategy": "ROLLING",
+      "priority": 15,
+      "reason": "A System Setup / data import service class is application logic. If it triggers a Patch, that Patch is independently flagged for migrate deployment.",
+      "recommendedActions": ["Rolling Deployment", "Verify On Every System Update", "Smoke Tests"]
+    },
+    {
+      "artifactType": "backoffice_config",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "Backoffice configuration is admin-tool configuration — no SAP Commerce schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "backoffice_widget",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "A Backoffice widget/action/editor/renderer is admin-tool UI code — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "backoffice_spring",
+      "strategy": "ROLLING",
+      "priority": 10,
+      "reason": "Backoffice security/wiring is admin-tool configuration — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "smartedit_config",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "SmartEdit configuration is CMS-authoring tool configuration — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "email_template",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "An email template is presentation content — no schema or business-logic impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "template",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "A Velocity template is presentation content — no schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "properties_extension",
+      "strategy": "ROLLING",
+      "priority": 10,
+      "reason": "Extension properties are environment configuration — no schema change. Affected aspects may need a restart to pick up the new value.",
+      "recommendedActions": ["Rolling Deployment", "Restart Affected Aspects", "Smoke Tests"]
+    },
+    {
+      "artifactType": "properties_environment",
+      "strategy": "ROLLING",
+      "priority": 12,
+      "reason": "Environment/persona/aspect properties are configuration — no schema change. Affected aspects may need a restart to pick up the new value.",
+      "recommendedActions": ["Rolling Deployment", "Restart Affected Aspects", "Smoke Tests"]
+    },
+    {
+      "artifactType": "properties_local",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "Local development properties are configuration only — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "extension_dependency",
+      "strategy": "ROLLING",
+      "priority": 16,
+      "reason": "An extension dependency declaration changes the build graph, not the running schema. Rebuild before rolling out.",
+      "recommendedActions": ["Rolling Deployment", "Rebuild Before Rollout", "Smoke Tests"]
+    },
+    {
+      "artifactType": "project_descriptor",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "The project descriptor is build/module configuration — no schema change.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "build_config",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "Build configuration affects how the artifact is assembled, not the running schema.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "ci_pipeline",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "A CI pipeline definition affects the build/release process, not the running application's schema.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "backend_i18n",
+      "strategy": "ROLLING",
+      "priority": 3,
+      "reason": "A backend localisation bundle is presentation content — no schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "test",
+      "strategy": "ROLLING",
+      "priority": 2,
+      "reason": "A test file has no runtime deployment impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_occ_config",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "Frontend OCC endpoint/site-context configuration is a storefront-side change — no SAP Commerce schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_feature_registry",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "Frontend feature registry/CMS mapping is a storefront-side change — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_module",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "A Spartacus/Angular feature module is storefront code — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_adapter",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "A frontend adapter is storefront code — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_connector",
+      "strategy": "ROLLING",
+      "priority": 3,
+      "reason": "A frontend connector is storefront code — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_service",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "A frontend service is storefront code — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_component",
+      "strategy": "ROLLING",
+      "priority": 3,
+      "reason": "A frontend component is storefront presentation code — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_component_template",
+      "strategy": "ROLLING",
+      "priority": 3,
+      "reason": "A frontend component template is storefront presentation markup — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_pipe",
+      "strategy": "ROLLING",
+      "priority": 4,
+      "reason": "A frontend pipe is storefront presentation logic — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_style",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "CSS/styling changes are purely presentational — no backend or schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_model",
+      "strategy": "ROLLING",
+      "priority": 5,
+      "reason": "A frontend model/interface is storefront-side typing — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_guard",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "A route guard changes storefront navigation logic — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_interceptor",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "An HTTP interceptor changes storefront request/response handling — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_root_module",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "The frontend root module changes storefront bootstrap/wiring — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_i18n",
+      "strategy": "ROLLING",
+      "priority": 3,
+      "reason": "Frontend translations are presentation content — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_dependencies",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "The frontend dependency manifest changes the storefront build, not the running SAP Commerce schema. Rebuild the storefront before rollout.",
+      "recommendedActions": ["Rolling Deployment", "Rebuild Before Rollout", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_environment",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "Frontend environment configuration affects the storefront build target — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    },
+    {
+      "artifactType": "frontend_build_config",
+      "strategy": "ROLLING",
+      "priority": 8,
+      "reason": "Frontend build configuration affects how the storefront is assembled — no backend schema impact.",
+      "recommendedActions": ["Rolling Deployment", "Smoke Tests"]
+    }
+  ]
+}

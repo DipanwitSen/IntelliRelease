@@ -1,5 +1,8 @@
-import { HealthStatus, ProvenanceClass, ReadinessStatus, ReleaseStatus, RiskLevel, Severity, Tone } from '../core/models/common';
+import {
+  ConfidenceLevel, HealthStatus, ProvenanceClass, ReadinessStatus, ReleaseStatus, RiskLevel, Severity, Tone,
+} from '../core/models/common';
 import { DeploymentStatus } from '../core/models/delivery';
+import { DeploymentStrategyType } from '../core/models/deployment-strategy';
 import { MappingStatus } from '../core/models/integration';
 
 /**
@@ -39,6 +42,29 @@ export function readinessTone(status: ReadinessStatus | string | null | undefine
     case 'READY': return 'success';
     case 'READY_WITH_WARNINGS': return 'warning';
     case 'NOT_READY': return 'danger';
+    default: return 'neutral';
+  }
+}
+
+/**
+ * MIGRATE is `danger` not because it is wrong — it is frequently the correct,
+ * required call — but because it carries the operational weight a Release
+ * Manager needs to see at a glance: a full system update, not a quiet
+ * node-by-node rollout.
+ */
+export function deploymentStrategyTone(strategy: DeploymentStrategyType | string | null | undefined): Tone {
+  switch (strategy) {
+    case 'ROLLING': return 'success';
+    case 'MIGRATE': return 'danger';
+    default: return 'neutral';
+  }
+}
+
+export function confidenceTone(confidence: ConfidenceLevel | string | null | undefined): Tone {
+  switch (confidence) {
+    case 'HIGH': return 'success';
+    case 'MEDIUM': return 'warning';
+    case 'LOW': return 'neutral';
     default: return 'neutral';
   }
 }

@@ -8,6 +8,8 @@ import com.gyansys.intellirelease.adapters.ai.DeterministicNarrator;
 import com.gyansys.intellirelease.domain.context.ChangedFile;
 import com.gyansys.intellirelease.domain.context.ContextResult;
 import com.gyansys.intellirelease.domain.context.SAPCommerceContextEngine;
+import com.gyansys.intellirelease.domain.deployment.DeploymentStrategyEngine;
+import com.gyansys.intellirelease.domain.deployment.DeploymentStrategyResult;
 import com.gyansys.intellirelease.domain.drift.ConfigurationDriftEngine;
 import com.gyansys.intellirelease.domain.drift.DriftResult;
 import com.gyansys.intellirelease.domain.impact.ImpactAnalyzer;
@@ -24,6 +26,7 @@ import com.gyansys.intellirelease.infra.AuditWriter;
 import com.gyansys.intellirelease.infra.JsonMapper;
 import com.gyansys.intellirelease.model.PrAnalysis;
 import com.gyansys.intellirelease.model.PullRequest;
+import com.gyansys.intellirelease.model.enums.DeploymentStrategyType;
 import com.gyansys.intellirelease.model.enums.SapCapability;
 import com.gyansys.intellirelease.repository.PrAnalysisRepository;
 import com.gyansys.intellirelease.repository.PullRequestRepository;
@@ -56,6 +59,7 @@ public class PullRequestAnalysisService {
     private final PullRequestRepository pullRequestRepository;
     private final PrAnalysisRepository prAnalysisRepository;
     private final SAPCommerceContextEngine contextEngine;
+    private final DeploymentStrategyEngine deploymentStrategyEngine;
     private final ImpactAnalyzer impactAnalyzer;
     private final RiskEngine riskEngine;
     private final RegressionRecommender regressionRecommender;
@@ -70,6 +74,7 @@ public class PullRequestAnalysisService {
     public PullRequestAnalysisService(PullRequestRepository pullRequestRepository,
                                       PrAnalysisRepository prAnalysisRepository,
                                       SAPCommerceContextEngine contextEngine,
+                                      DeploymentStrategyEngine deploymentStrategyEngine,
                                       ImpactAnalyzer impactAnalyzer,
                                       RiskEngine riskEngine,
                                       RegressionRecommender regressionRecommender,
@@ -83,6 +88,7 @@ public class PullRequestAnalysisService {
         this.pullRequestRepository = pullRequestRepository;
         this.prAnalysisRepository = prAnalysisRepository;
         this.contextEngine = contextEngine;
+        this.deploymentStrategyEngine = deploymentStrategyEngine;
         this.impactAnalyzer = impactAnalyzer;
         this.riskEngine = riskEngine;
         this.regressionRecommender = regressionRecommender;
@@ -105,6 +111,12 @@ public class PullRequestAnalysisService {
         // 1. Deterministic SAP Commerce meaning. Everything below reads this.
         ContextResult context = contextEngine.analyze(changedFiles);
 
+        // 1.5. Deployment Strategy Engine — SAP Commerce knowledge only, no
+        //      AI, no source code. Runs immediately after the Context Engine
+        //      and before Impact/Risk, per the philosophy chain this platform
+        //      documents in CLAUDE.md.
+        DeploymentStrategyResult deploymentStrategy = deploymentStrategyEngine.evaluate(context);
+
         // 2. Four engines off the same context. Independent of each other.
         ImpactResult impact = impactAnalyzer.analyze(context);
         RiskResult risk = riskEngine.evaluate(context);
@@ -118,6 +130,8 @@ public class PullRequestAnalysisService {
 
         PrAnalysis analysis = PrAnalysis.forPullRequest(prId, pullRequest.getTenantId());
         analysis.setSapCommerceContext(jsonMapper.toJson(context));
+        analysis.setDeploymentStrategy(jsonMapper.toJson(deploymentStrategy));
+        analysis.setDeploymentStrategyType(deploymentStrategy.strategy());
         analysis.setImpactAnalysis(jsonMapper.toJson(impact));
         analysis.setRegressionRecommendation(jsonMapper.toJson(regression));
         analysis.setRiskScore(risk.score());
@@ -129,7 +143,7 @@ public class PullRequestAnalysisService {
         analysis.setDeploymentReadinessStatus(readiness.status());
 
         // 4. Explanation last. Never a source of fact.
-        applyNarration(analysis, pullRequest, context, impact, risk, regression, drift, readiness);
+        applyNarration(analysis, pullRequest, context, deploymentStrategy, impact, risk, regression, drift, readiness);
 
         PrAnalysis saved = prAnalysisRepository.save(analysis);
 
@@ -137,12 +151,42 @@ public class PullRequestAnalysisService {
                 "PullRequest", prId.toString(),
                 "risk=" + risk.score() + " " + risk.level()
                         + " capabilities=" + context.capabilities().size()
+                        + " deploymentStrategy=" + deploymentStrategy.strategy()
                         + " readiness=" + readiness.score() + " " + readiness.status()
                         + " aiFallback=" + saved.isAiFallbackUsed());
 
         log.info("Analysed PR #{} on {}: risk {} {}, {} confirmed / {} potential impacts",
                 pullRequest.getPrNumber(), pullRequest.getRepoName(),
                 risk.score(), risk.level(), impact.confirmedCount(), impact.potentialCount());
+
+        return saved;
+    }
+
+    /**
+     * The governance gate for this feature: a human picks ROLLING or MIGRATE
+     * (matching or overriding the engine's recommendation), the analysis is
+     * refreshed so the AI narrative is generated fresh against that moment,
+     * and the confirmation itself is stamped and audited.
+     *
+     * <p>Deliberately does not require the confirmed value to match the
+     * engine's recommendation — the engine explains, the human decides, and
+     * an override is a fact worth recording, not an error to reject.
+     */
+    @Transactional
+    public PrAnalysis confirmDeploymentStrategy(UUID prId, DeploymentStrategyType confirmed, String confirmedBy) {
+        PrAnalysis current = prAnalysisRepository.findById(prId)
+                .orElseThrow(() -> new IllegalStateException("Pull request has not been analysed yet"));
+        DeploymentStrategyType recommended = current.getDeploymentStrategyType();
+
+        PrAnalysis refreshed = analyze(prId);
+        refreshed.setConfirmedDeploymentStrategy(confirmed);
+        refreshed.setConfirmedBy(confirmedBy);
+        refreshed.setConfirmedAt(java.time.OffsetDateTime.now());
+        PrAnalysis saved = prAnalysisRepository.save(refreshed);
+
+        auditWriter.record("DEPLOYMENT_STRATEGY_CONFIRMED", "PullRequest", prId.toString(),
+                "confirmed=" + confirmed + " recommended=" + recommended
+                        + (confirmed == recommended ? " (matches recommendation)" : " (human override)"));
 
         return saved;
     }
@@ -164,14 +208,14 @@ public class PullRequestAnalysisService {
     }
 
     private void applyNarration(PrAnalysis analysis, PullRequest pullRequest, ContextResult context,
-                                ImpactResult impact, RiskResult risk, RegressionResult regression,
-                                DriftResult drift, ReadinessResult readiness) {
+                                DeploymentStrategyResult deploymentStrategy, ImpactResult impact, RiskResult risk,
+                                RegressionResult regression, DriftResult drift, ReadinessResult readiness) {
         AiAnalysisRequest request = new AiAnalysisRequest(
                 pullRequest.getPrNumber(),
                 pullRequest.getTitle(),
                 pullRequest.getTicketKey(),
                 pullRequest.getRepoName(),
-                context, impact, risk, regression, drift, readiness);
+                context, deploymentStrategy, impact, risk, regression, drift, readiness);
 
         AiAnalysisResponse response = aiServiceClient.analyze(request);
         boolean usedFallback = response == null || response.fallback();

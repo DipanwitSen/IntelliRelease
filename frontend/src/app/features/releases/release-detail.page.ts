@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, effect, inject, 
 import { RouterLink } from '@angular/router';
 
 import { BuildResult, NotifyResult, ReleaseDetail, ReleaseNotes } from '../../core/models/delivery';
+import { DeploymentStrategyResult } from '../../core/models/deployment-strategy';
 import { ApiService } from '../../core/services/api.service';
 import { BreadcrumbService } from '../../core/services/breadcrumb.service';
 import { RequestState } from '../../core/services/request-state';
@@ -12,7 +13,7 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { EmptyStateComponent, ErrorPanelComponent, SkeletonComponent } from '../../shared/components/states/states.component';
 import { AbsoluteTimePipe } from '../../shared/pipes/relative-time.pipe';
-import { readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
+import { confidenceTone, deploymentStrategyTone, readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
 
 /**
  * One release, and the governed actions available on it.
@@ -95,6 +96,54 @@ import { readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
             }
           </div></div>
         </section>
+
+        <ir-section-card title="Deployment Strategy" icon="git-branch">
+          @if (strategy.data(); as advisory) {
+            <div class="strategy-head">
+              <ir-badge [label]="advisory.strategy" [tone]="deploymentStrategyTone(advisory.strategy)" />
+              <span class="def-label">Confidence</span>
+              <ir-badge [label]="advisory.confidence" [tone]="confidenceTone(advisory.confidence)" />
+            </div>
+
+            @if (advisory.reasons.length) {
+              <div class="strategy-block">
+                <div class="section-title">Reason</div>
+                <ul class="check-list">
+                  @for (reason of advisory.reasons; track reason) {
+                    <li><ir-icon name="check-circle" [size]="14" class="check-icon" />{{ reason }}</li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (advisory.recommendedActions.length) {
+              <div class="strategy-block">
+                <div class="section-title">Recommendations</div>
+                <ul class="check-list">
+                  @for (action of advisory.recommendedActions; track action) {
+                    <li><ir-icon name="check-circle" [size]="14" class="check-icon" />{{ action }}</li>
+                  }
+                </ul>
+              </div>
+            }
+
+            <p class="text-xs muted" style="margin-top: var(--space-3)">
+              Deterministic — decided by SAP Commerce artifact-type rules, not AI.
+              Rule set {{ advisory.knowledgeBaseVersion }}.
+              @if (advisory.unclassifiedFileCount) {
+                {{ advisory.unclassifiedFileCount }} changed file(s) could not be classified.
+              }
+            </p>
+          } @else if (strategy.showSkeleton()) {
+            <ir-skeleton [rows]="4" />
+          } @else {
+            <ir-empty-state
+              icon="git-branch"
+              title="No recommendation yet"
+              body="Build this release from Git so the Deployment Strategy Engine can evaluate its resolved pull requests."
+            />
+          }
+        </ir-section-card>
 
         <ir-section-card title="Included pull requests" icon="git-pull-request" [count]="detail.pullRequests?.length ?? 0">
           @if (detail.pullRequests?.length) {
@@ -244,6 +293,12 @@ import { readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
       }
       .notes-list { list-style: disc; padding-left: var(--space-5); font-size: var(--text-md); }
       .notes-list li { margin-bottom: var(--space-2); line-height: var(--leading-relaxed); }
+
+      .strategy-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+      .strategy-block { margin-top: var(--space-3); }
+      .check-list { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-md); }
+      .check-list li { display: flex; align-items: flex-start; gap: var(--space-2); }
+      .check-icon { color: var(--tone-success, var(--accent)); margin-top: 2px; flex-shrink: 0; }
     `,
   ],
 })
@@ -256,6 +311,7 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
 
   protected readonly state = new RequestState<ReleaseDetail>();
   protected readonly notes = new RequestState<ReleaseNotes>();
+  protected readonly strategy = new RequestState<DeploymentStrategyResult>();
   protected readonly buildResult = signal<BuildResult | null>(null);
   protected readonly notifyResult = signal<NotifyResult | null>(null);
   protected readonly busy = signal(false);
@@ -265,6 +321,8 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
   protected readonly riskTone = riskTone;
   protected readonly readinessTone = readinessTone;
   protected readonly releaseStatusTone = releaseStatusTone;
+  protected readonly deploymentStrategyTone = deploymentStrategyTone;
+  protected readonly confidenceTone = confidenceTone;
 
   constructor() {
     effect(() => {
@@ -282,10 +340,12 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.state.destroy();
     this.notes.destroy();
+    this.strategy.destroy();
   }
 
   protected reload(): void {
     this.state.load(this.api.getRelease(this.id()));
+    this.strategy.load(this.api.getReleaseDeploymentStrategy(this.id()));
   }
 
   protected loadNotes(): void {
@@ -308,6 +368,7 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
         this.busy.set(false);
         this.buildResult.set(result);
         this.state.set(result.release);
+        this.strategy.load(this.api.getReleaseDeploymentStrategy(this.id()));
         this.toast.success('Contents resolved', `${result.commitsExamined} commits examined.`);
       },
       error: (error: { error?: { message?: string } }) => {

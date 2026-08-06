@@ -2,6 +2,7 @@ package com.gyansys.intellirelease.adapters.ai;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gyansys.intellirelease.domain.context.ContextResult;
+import com.gyansys.intellirelease.domain.deployment.DeploymentStrategyResult;
 import com.gyansys.intellirelease.domain.drift.DriftResult;
 import com.gyansys.intellirelease.domain.impact.ImpactResult;
 import com.gyansys.intellirelease.domain.readiness.ReadinessResult;
@@ -27,6 +28,7 @@ public record AiAnalysisRequest(
         String ticketKey,
         String repoName,
         ContextResult sapCommerceContext,
+        DeploymentStrategyResult deploymentStrategy,
         ImpactResult impactAnalysis,
         RiskResult riskResult,
         RegressionResult regressionSuggestions,

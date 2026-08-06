@@ -10,6 +10,7 @@ import com.gyansys.intellirelease.infra.JsonMapper;
 import com.gyansys.intellirelease.infra.TenantContext;
 import com.gyansys.intellirelease.model.PrAnalysis;
 import com.gyansys.intellirelease.model.PullRequest;
+import com.gyansys.intellirelease.model.enums.DeploymentStrategyType;
 import com.gyansys.intellirelease.model.enums.ProvenanceClass;
 import com.gyansys.intellirelease.model.enums.ReadinessStatus;
 import com.gyansys.intellirelease.model.enums.RiskLevel;
@@ -17,15 +18,19 @@ import com.gyansys.intellirelease.repository.PrAnalysisRepository;
 import com.gyansys.intellirelease.repository.PullRequestRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.Principal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -72,7 +77,9 @@ public class PullRequestController {
             Integer deploymentReadinessScore, ReadinessStatus deploymentReadinessStatus,
             boolean analyzed,
             /** Headline counts, so the list can show impact without a second request per row. */
-            Integer changedFileCount, String ticketKey, boolean integrationTouched
+            Integer changedFileCount, String ticketKey, boolean integrationTouched,
+            /** ROLLING or MIGRATE — see the Deployment Strategy Advisor feature. */
+            DeploymentStrategyType deploymentStrategyType
     ) {
     }
 
@@ -82,7 +89,9 @@ public class PullRequestController {
             String author, String branch, String ticketKey, String mergeSha,
             OffsetDateTime mergedAt, JsonNode changedFiles,
             boolean analyzed,
-            JsonNode sapCommerceContext, JsonNode impactAnalysis, JsonNode regressionRecommendation,
+            JsonNode sapCommerceContext,
+            JsonNode deploymentStrategy, DeploymentStrategyType deploymentStrategyType,
+            JsonNode impactAnalysis, JsonNode regressionRecommendation,
             Integer riskScore, RiskLevel riskLevel, JsonNode riskReasons, String riskPolicyVersion,
             JsonNode configurationDrift,
             JsonNode aiSummary, Boolean aiFallbackUsed, String modelProvider, String modelName,
@@ -94,8 +103,13 @@ public class PullRequestController {
              * persisted, so an interface added to the catalogue today is
              * reflected against a change captured last week without a backfill.
              */
-            IntegrationContext integrationContext
+            IntegrationContext integrationContext,
+            /** The human decision on top of {@code deploymentStrategyType} — null until confirmed. */
+            DeploymentStrategyType confirmedDeploymentStrategy, String confirmedBy, OffsetDateTime confirmedAt
     ) {
+    }
+
+    public record ConfirmStrategyRequest(@NotNull DeploymentStrategyType strategy) {
     }
 
     @GetMapping
@@ -157,7 +171,8 @@ public class PullRequestController {
                 analysis != null,
                 countChangedFiles(pr),
                 pr.getTicketKey(),
-                touchesIntegration(pr));
+                touchesIntegration(pr),
+                analysis == null ? null : analysis.getDeploymentStrategyType());
     }
 
     private static boolean matchesTerm(PullRequest pr, String term) {
@@ -267,6 +282,8 @@ public class PullRequestController {
                 pr.getMergedAt(), jsonMapper.readTree(pr.getChangedFiles()),
                 analysis != null,
                 analysis == null ? null : jsonMapper.readTree(analysis.getSapCommerceContext()),
+                analysis == null ? null : jsonMapper.readTree(analysis.getDeploymentStrategy()),
+                analysis == null ? null : analysis.getDeploymentStrategyType(),
                 analysis == null ? null : jsonMapper.readTree(analysis.getImpactAnalysis()),
                 analysis == null ? null : jsonMapper.readTree(analysis.getRegressionRecommendation()),
                 analysis == null ? null : analysis.getRiskScore(),
@@ -282,6 +299,28 @@ public class PullRequestController {
                 analysis == null ? null : analysis.getDeploymentReadinessScore(),
                 analysis == null ? null : analysis.getDeploymentReadinessStatus(),
                 analysis == null ? null : analysis.getProvenanceClass(),
-                integrationExtractor.extract(pathsOf(pr)));
+                integrationExtractor.extract(pathsOf(pr)),
+                analysis == null ? null : analysis.getConfirmedDeploymentStrategy(),
+                analysis == null ? null : analysis.getConfirmedBy(),
+                analysis == null ? null : analysis.getConfirmedAt());
+    }
+
+    @PostMapping("/{id}/deployment-strategy/confirm")
+    @Operation(
+            summary = "Confirm a deployment strategy for this pull request",
+            description = """
+                    The governance gate for the Deployment Strategy Advisor. A human confirms
+                    ROLLING or MIGRATE — matching or overriding the engine's recommendation —
+                    which refreshes the analysis (regenerating the AI narrative fresh) and
+                    stamps who confirmed what and when.
+                    """)
+    public ResponseEntity<Detail> confirmDeploymentStrategy(
+            @PathVariable UUID id, @Valid @RequestBody ConfirmStrategyRequest request, Principal principal) {
+        if (pullRequestRepository.findById(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        String confirmedBy = principal == null ? "unknown" : principal.getName();
+        analysisService.confirmDeploymentStrategy(id, request.strategy(), confirmedBy);
+        return get(id);
     }
 }

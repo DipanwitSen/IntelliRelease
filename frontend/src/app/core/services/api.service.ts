@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { DashboardSnapshot } from '../models/dashboard';
+import { DeploymentStrategyResult, DeploymentStrategyType } from '../models/deployment-strategy';
 import {
   AuditEntry, BuildResult, CreateReleaseRequest, DeploymentEvent, NotifyResult,
   PlatformSettings, PullRequestDetail, PullRequestSummary, ReleaseDetail,
@@ -94,6 +95,17 @@ export class ApiService {
     return this.http.get<ContextPackage>(`${this.api}/pull-requests/${prId}/context-package`);
   }
 
+  /** ROLLING or MIGRATE for this pull request alone — see DeploymentStrategyEngine. */
+  getPullRequestDeploymentStrategy(prId: string): Observable<DeploymentStrategyResult> {
+    return this.http.get<DeploymentStrategyResult>(`${this.api}/pull-requests/${prId}/deployment-strategy`);
+  }
+
+  /** The governance gate: confirms (or overrides) the recommendation and regenerates the AI narrative. */
+  confirmDeploymentStrategy(prId: string, strategy: DeploymentStrategyType): Observable<PullRequestDetail> {
+    return this.http.post<PullRequestDetail>(
+      `${this.api}/pull-requests/${prId}/deployment-strategy/confirm`, { strategy });
+  }
+
   /* -------------------------------------------------------------- releases */
 
   listReleases(options: ReleaseQuery = {}): Observable<Page<ReleaseSummary>> {
@@ -122,6 +134,14 @@ export class ApiService {
 
   markReleaseDeployed(releaseId: string): Observable<ReleaseDetail> {
     return this.http.post<ReleaseDetail>(`${this.api}/releases/${releaseId}/deploy`, {});
+  }
+
+  /**
+   * ROLLING or MIGRATE for this release — inherited from its riskiest included
+   * pull request. 404 until the release has been built at least once.
+   */
+  getReleaseDeploymentStrategy(releaseId: string): Observable<DeploymentStrategyResult> {
+    return this.http.get<DeploymentStrategyResult>(`${this.api}/releases/${releaseId}/deployment-strategy`);
   }
 
   sendReleaseNotifications(releaseId: string): Observable<NotifyResult> {

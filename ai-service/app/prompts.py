@@ -20,6 +20,7 @@ ANALYZE_KEYS = [
     "riskExplanation",
     "regressionGuidance",
     "readinessExplanation",
+    "deploymentStrategyExplanation",
 ]
 
 SYNTHESIZE_KEYS = [
@@ -46,6 +47,12 @@ English for four audiences. Never invent a number, capability, or fact that
 is not present in the JSON facts. Never mention source code or file contents
 you were not given — you were not given any.
 
+The deploymentStrategy fact below (ROLLING or MIGRATE) was decided entirely
+by a deterministic SAP Commerce rule engine, before you were called. You do
+not choose or influence it — you only explain, in plain English, WHY that
+strategy is correct given the artifact types and reasons already listed on
+it. Never suggest a different strategy than the one given.
+
 Deterministic facts for pull request #{request.prNumber}:
 {_facts(request)}
 
@@ -58,6 +65,12 @@ other keys, no markdown fences, no commentary outside the JSON:
 - riskExplanation: 1-2 sentences explaining the risk score and its drivers
 - regressionGuidance: 1 sentence restating the regression disclaimer
 - readinessExplanation: 1-2 sentences explaining the readiness score/status
+- deploymentStrategyExplanation: 1-2 sentences explaining WHY the given
+  deploymentStrategy.strategy value is the correct deployment approach,
+  grounded in the specific artifact type(s) and reasons already listed on
+  deploymentStrategy — e.g. "This release modifies the SAP Commerce type
+  system via items.xml, so a database schema update is expected and a
+  migrate deployment is recommended."
 """
 
 

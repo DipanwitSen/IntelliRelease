@@ -34,6 +34,36 @@ class ContextResult(Lenient):
 
 
 # ---------------------------------------------------------------------------
+# Deployment Strategy Engine output
+# ---------------------------------------------------------------------------
+#
+# ROLLING or MIGRATE, and why. Computed deterministically from SAP Commerce
+# artifact-type rules — this service never sees the rules and never chooses
+# between the two; it only ever explains the value already in `strategy`.
+
+class DeploymentStrategyMatch(Lenient):
+    filePath: str | None = None
+    artifactType: str | None = None
+    artifactDisplayName: str | None = None
+    strategy: str | None = None
+    priority: int = 0
+    reason: str | None = None
+    recommendedActions: list[str] = Field(default_factory=list)
+
+
+class DeploymentStrategyResult(Lenient):
+    strategy: str
+    confidence: str | None = None
+    reasons: list[str] = Field(default_factory=list)
+    recommendedActions: list[str] = Field(default_factory=list)
+    matches: list[DeploymentStrategyMatch] = Field(default_factory=list)
+    classifiedFileCount: int = 0
+    unclassifiedFileCount: int = 0
+    knowledgeBaseVersion: str | None = None
+    provenanceClass: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Impact Analysis Engine output
 # ---------------------------------------------------------------------------
 
@@ -145,6 +175,7 @@ class AnalyzeRequest(Lenient):
     ticketKey: str | None = None
     repoName: str | None = None
     sapCommerceContext: ContextResult | None = None
+    deploymentStrategy: DeploymentStrategyResult | None = None
     impactAnalysis: ImpactResult | None = None
     riskResult: RiskResult | None = None
     regressionSuggestions: RegressionResult | None = None
@@ -160,6 +191,7 @@ class AnalyzeResponse(BaseModel):
     riskExplanation: str
     regressionGuidance: str
     readinessExplanation: str
+    deploymentStrategyExplanation: str
     provenanceClass: str
     fallback: bool
     provider: str

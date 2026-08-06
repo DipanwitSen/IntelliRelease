@@ -8,6 +8,8 @@ import com.gyansys.intellirelease.adapters.ai.DeterministicNarrator;
 import com.gyansys.intellirelease.domain.context.ChangedFile;
 import com.gyansys.intellirelease.domain.context.ContextResult;
 import com.gyansys.intellirelease.domain.context.FileContext;
+import com.gyansys.intellirelease.domain.deployment.DeploymentStrategyEngine;
+import com.gyansys.intellirelease.domain.deployment.DeploymentStrategyResult;
 import com.gyansys.intellirelease.domain.release.ExcludedChange;
 import com.gyansys.intellirelease.domain.release.ReleaseResolver;
 import com.gyansys.intellirelease.infra.AuditWriter;
@@ -52,6 +54,7 @@ public class ReleaseService {
     private final PullRequestRepository pullRequestRepository;
     private final PrAnalysisRepository prAnalysisRepository;
     private final ReleaseResolver releaseResolver;
+    private final DeploymentStrategyEngine deploymentStrategyEngine;
     private final AiServiceClient aiServiceClient;
     private final DeterministicNarrator narrator;
     private final TenantContext tenantContext;
@@ -62,6 +65,7 @@ public class ReleaseService {
                           PullRequestRepository pullRequestRepository,
                           PrAnalysisRepository prAnalysisRepository,
                           ReleaseResolver releaseResolver,
+                          DeploymentStrategyEngine deploymentStrategyEngine,
                           AiServiceClient aiServiceClient,
                           DeterministicNarrator narrator,
                           TenantContext tenantContext,
@@ -71,6 +75,7 @@ public class ReleaseService {
         this.pullRequestRepository = pullRequestRepository;
         this.prAnalysisRepository = prAnalysisRepository;
         this.releaseResolver = releaseResolver;
+        this.deploymentStrategyEngine = deploymentStrategyEngine;
         this.aiServiceClient = aiServiceClient;
         this.narrator = narrator;
         this.tenantContext = tenantContext;
@@ -167,6 +172,11 @@ public class ReleaseService {
         release.setExcludedPrs(jsonMapper.toJson(resolved.excluded()));
         release.setBuiltAt(OffsetDateTime.now());
         release.setStatus(ReleaseStatus.BUILT);
+
+        DeploymentStrategyResult deploymentStrategy = aggregateDeploymentStrategy(attached);
+        release.setDeploymentStrategy(jsonMapper.toJson(deploymentStrategy));
+        release.setDeploymentStrategyType(deploymentStrategy.strategy());
+
         Release saved = releaseRepository.save(release);
 
         auditWriter.record("RELEASE_BUILT", "Release", saved.getReleaseId().toString(),
@@ -334,5 +344,19 @@ public class ReleaseService {
         List<UUID> ids = pullRequests.stream().map(PullRequest::getPrId).toList();
         return prAnalysisRepository.findByPrIdIn(ids).stream()
                 .collect(Collectors.toMap(PrAnalysis::getPrId, a -> a));
+    }
+
+    /**
+     * Reads each attached pull request's already-computed {@link DeploymentStrategyResult}
+     * (stored per PR at analysis time — see {@link PullRequestAnalysisService}) and rolls
+     * them up via {@link DeploymentStrategyEngine#aggregate}. A PR not yet analysed
+     * contributes nothing, exactly like any other engine output on an unanalysed PR.
+     */
+    private DeploymentStrategyResult aggregateDeploymentStrategy(Collection<PullRequest> attached) {
+        List<DeploymentStrategyResult> prResults = analysesFor(attached).values().stream()
+                .map(analysis -> jsonMapper.fromJson(analysis.getDeploymentStrategy(), DeploymentStrategyResult.class))
+                .filter(Objects::nonNull)
+                .toList();
+        return deploymentStrategyEngine.aggregate(prResults);
     }
 }

@@ -24,6 +24,7 @@ public record AiAnalysisResponse(
         String riskExplanation,
         String regressionGuidance,
         String readinessExplanation,
+        String deploymentStrategyExplanation,
         ProvenanceClass provenanceClass,
         boolean fallback,
         String provider,
@@ -39,7 +40,7 @@ public record AiAnalysisResponse(
     public AiAnalysisResponse asFallback() {
         return new AiAnalysisResponse(
                 technicalSummary, qaSummary, businessSummary, clientSummary,
-                riskExplanation, regressionGuidance, readinessExplanation,
+                riskExplanation, regressionGuidance, readinessExplanation, deploymentStrategyExplanation,
                 ProvenanceClass.RULE_OUTPUT, true, "deterministic-template", "none", 0);
     }
 }

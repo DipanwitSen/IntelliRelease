@@ -1,5 +1,6 @@
 package com.gyansys.intellirelease.model;
 
+import com.gyansys.intellirelease.model.enums.DeploymentStrategyType;
 import com.gyansys.intellirelease.model.enums.ProvenanceClass;
 import com.gyansys.intellirelease.model.enums.ReadinessStatus;
 import com.gyansys.intellirelease.model.enums.RiskLevel;
@@ -47,6 +48,28 @@ public class PrAnalysis {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "sap_commerce_context", nullable = false)
     private String sapCommerceContext;
+
+    // --- Deterministic: Deployment Strategy Engine (RULE_OUTPUT) -----------
+    // Runs immediately after the Context Engine, off the same file
+    // classifications — see DeploymentStrategyEngine.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "deployment_strategy")
+    private String deploymentStrategy;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "deployment_strategy_type", length = 20)
+    private DeploymentStrategyType deploymentStrategyType;
+
+    // --- Human decision on top of the recommendation above -----------------
+    @Enumerated(EnumType.STRING)
+    @Column(name = "confirmed_deployment_strategy", length = 20)
+    private DeploymentStrategyType confirmedDeploymentStrategy;
+
+    @Column(name = "confirmed_by", length = 100)
+    private String confirmedBy;
+
+    @Column(name = "confirmed_at")
+    private OffsetDateTime confirmedAt;
 
     // --- Deterministic: rule engines (RULE_OUTPUT) ------------------------
     @JdbcTypeCode(SqlTypes.JSON)

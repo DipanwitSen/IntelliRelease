@@ -8,6 +8,7 @@ import com.gyansys.intellirelease.infra.JsonMapper;
 import com.gyansys.intellirelease.model.PrAnalysis;
 import com.gyansys.intellirelease.model.PullRequest;
 import com.gyansys.intellirelease.model.Release;
+import com.gyansys.intellirelease.model.enums.DeploymentStrategyType;
 import com.gyansys.intellirelease.model.enums.ReadinessStatus;
 import com.gyansys.intellirelease.model.enums.ReleaseStatus;
 import com.gyansys.intellirelease.model.enums.RiskLevel;
@@ -73,6 +74,12 @@ public class ReleaseController {
             ReleaseStatus status, Integer resolvedPrCount,
             Integer aggregateRiskScore, RiskLevel aggregateRiskLevel,
             Integer readinessScore, ReadinessStatus readinessStatus,
+            /**
+             * ROLLING or MIGRATE — the release inherits this from its riskiest
+             * included pull request. Null until the release is built; see
+             * {@code GET /{id}/deployment-strategy} for the full reasoning.
+             */
+            DeploymentStrategyType deploymentStrategyType,
             boolean deployed, OffsetDateTime deployedAt, String deployedBy,
             OffsetDateTime createdAt, OffsetDateTime builtAt,
             List<PrSummary> pullRequests, List<ExcludedChange> excludedPrs
@@ -83,6 +90,7 @@ public class ReleaseController {
                     release.getFromRef(), release.getToRef(), release.getStatus(), release.getResolvedPrCount(),
                     release.getAggregateRiskScore(), release.getAggregateRiskLevel(),
                     release.getReadinessScore(), release.getReadinessStatus(),
+                    release.getDeploymentStrategyType(),
                     release.isDeployed(), release.getDeployedAt(), release.getDeployedBy(),
                     release.getCreatedAt(), release.getBuiltAt(), null, null);
         }
@@ -238,7 +246,8 @@ public class ReleaseController {
         return new View(
                 base.releaseId(), base.repoName(), base.version(), base.fromRef(), base.toRef(),
                 base.status(), base.resolvedPrCount(), base.aggregateRiskScore(), base.aggregateRiskLevel(),
-                base.readinessScore(), base.readinessStatus(), base.deployed(), base.deployedAt(),
+                base.readinessScore(), base.readinessStatus(), base.deploymentStrategyType(),
+                base.deployed(), base.deployedAt(),
                 base.deployedBy(), base.createdAt(), base.builtAt(),
                 prSummaries.isEmpty() ? null : prSummaries,
                 excluded == null || excluded.isEmpty() ? null : excluded);

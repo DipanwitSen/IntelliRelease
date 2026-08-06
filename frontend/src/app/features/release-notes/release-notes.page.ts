@@ -15,11 +15,7 @@ import { releaseStatusTone } from '../../shared/tone';
 type Audience = 'developer' | 'qa' | 'business' | 'client';
 
 /**
- * Release notes, per audience, previewed before anything is sent.
- *
- * The audience tabs are the point: an executive summary and a QA regression
- * list are different documents about the same change, and sending one to the
- * other's distribution list is how release communication loses its readers.
+ * Release notes changelog, previewed before anything is sent.
  */
 @Component({
   selector: 'ir-release-notes',

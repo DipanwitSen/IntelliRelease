@@ -1,11 +1,13 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { DeploymentStrategyResult, DeploymentStrategyType } from '../../core/models/deployment-strategy';
 import { PullRequestDetail } from '../../core/models/delivery';
 import { ContextPackage } from '../../core/models/intelligence';
 import { ApiService } from '../../core/services/api.service';
 import { BreadcrumbService } from '../../core/services/breadcrumb.service';
 import { RequestState } from '../../core/services/request-state';
+import { ToastService } from '../../core/services/toast.service';
 import { BadgeComponent, ProvenanceBadgeComponent } from '../../shared/components/badge/badge.component';
 import { CodeViewerComponent } from '../../shared/components/code-viewer/code-viewer.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
@@ -13,7 +15,7 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { EmptyStateComponent, ErrorPanelComponent, SkeletonComponent } from '../../shared/components/states/states.component';
 import { AbsoluteTimePipe, FileSizePipe } from '../../shared/pipes/relative-time.pipe';
-import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '../../shared/tone';
+import { confidenceTone, deploymentStrategyTone, humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '../../shared/tone';
 
 /**
  * One pull request, in full.
@@ -149,6 +151,73 @@ import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '
             </ir-section-card>
           </section>
 
+          <ir-section-card title="Deployment Strategy" icon="git-branch">
+            @if (strategy.data(); as advisory) {
+              <div class="strategy-head">
+                <ir-badge [label]="advisory.strategy" [tone]="deploymentStrategyTone(advisory.strategy)" />
+                <span class="def-label">Confidence</span>
+                <ir-badge [label]="advisory.confidence" [tone]="confidenceTone(advisory.confidence)" />
+              </div>
+
+              @if (advisory.reasons.length) {
+                <div class="strategy-block">
+                  <div class="section-title">Reason</div>
+                  <ul class="check-list">
+                    @for (reason of advisory.reasons; track reason) {
+                      <li><ir-icon name="check-circle" [size]="14" class="check-icon" />{{ reason }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              @if (advisory.recommendedActions.length) {
+                <div class="strategy-block">
+                  <div class="section-title">Recommendations</div>
+                  <ul class="check-list">
+                    @for (action of advisory.recommendedActions; track action) {
+                      <li><ir-icon name="check-circle" [size]="14" class="check-icon" />{{ action }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              @if (detail.confirmedDeploymentStrategy) {
+                <div class="callout tone-success" style="margin-top: var(--space-4)">
+                  <ir-icon name="check-circle" [size]="16" class="callout-icon" />
+                  <div>
+                    Confirmed: {{ detail.confirmedDeploymentStrategy }} deployment by {{ detail.confirmedBy }}
+                    &middot; {{ detail.confirmedAt | absoluteTime }}
+                  </div>
+                </div>
+              } @else {
+                <div class="strategy-block row-2">
+                  <button type="button" class="btn btn-sm btn-primary" [disabled]="confirming()"
+                          (click)="confirmStrategy('ROLLING')">
+                    Confirm Rolling Deployment
+                    @if (advisory.strategy === 'ROLLING') { <span class="chip">Recommended</span> }
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" [disabled]="confirming()"
+                          (click)="confirmStrategy('MIGRATE')">
+                    Confirm Migrate Deployment
+                    @if (advisory.strategy === 'MIGRATE') { <span class="chip">Recommended</span> }
+                  </button>
+                </div>
+              }
+
+              <p class="text-xs muted" style="margin-top: var(--space-3)">
+                Deterministic — decided by SAP Commerce artifact-type rules, not AI.
+                Rule set {{ advisory.knowledgeBaseVersion }}.
+                @if (advisory.unclassifiedFileCount) {
+                  {{ advisory.unclassifiedFileCount }} changed file(s) could not be classified.
+                }
+              </p>
+            } @else if (strategy.showSkeleton()) {
+              <ir-skeleton [rows]="4" />
+            } @else {
+              <ir-empty-state icon="git-branch" title="No recommendation yet" body="Deployment strategy is computed as part of analysis." />
+            }
+          </ir-section-card>
+
           @if (detail.integrationContext; as integration) {
             <ir-section-card title="Integration impact" icon="network">
               <div actions><ir-provenance [value]="integration.provenance" /></div>
@@ -216,13 +285,13 @@ import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '
             </ir-section-card>
           }
 
-          @if (detail.aiSummary; as ai) {
-            <ir-section-card title="AI summary" icon="sparkles">
+          @if (detail.confirmedDeploymentStrategy && detail.aiSummary; as ai) {
+            <ir-section-card title="Release notes" icon="file-text">
               <div actions class="row-2">
-                @if (ai.fallbackUsed) {
+                @if (ai.fallback) {
                   <ir-badge label="Deterministic fallback" tone="warning" [humanize]="false" />
                 }
-                <ir-provenance [value]="ai.provenance" />
+                <ir-provenance [value]="ai.provenanceClass" />
               </div>
               <div class="stack-6">
                 @for (section of aiSections(); track section.label) {
@@ -290,18 +359,27 @@ import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '
         padding: var(--space-2) var(--space-3); flex-wrap: wrap;
         border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
       }
+
+      .strategy-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+      .strategy-block { margin-top: var(--space-3); }
+      .check-list { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-md); }
+      .check-list li { display: flex; align-items: flex-start; gap: var(--space-2); }
+      .check-icon { color: var(--tone-success, var(--accent)); margin-top: 2px; flex-shrink: 0; }
     `,
   ],
 })
 export class PullRequestDetailPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly breadcrumbs = inject(BreadcrumbService);
+  private readonly toast = inject(ToastService);
 
   /** Bound from the `:id` route param by withComponentInputBinding(). */
   readonly id = input.required<string>();
 
   protected readonly state = new RequestState<PullRequestDetail>();
   protected readonly contextPackage = new RequestState<ContextPackage>();
+  protected readonly strategy = new RequestState<DeploymentStrategyResult>();
+  protected readonly confirming = signal(false);
 
   protected readonly pr = this.state.data;
 
@@ -309,6 +387,8 @@ export class PullRequestDetailPage implements OnInit, OnDestroy {
   protected readonly riskScoreTone = riskScoreTone;
   protected readonly readinessTone = readinessTone;
   protected readonly severityTone = severityTone;
+  protected readonly deploymentStrategyTone = deploymentStrategyTone;
+  protected readonly confidenceTone = confidenceTone;
   protected readonly humanise = humanise;
 
   constructor() {
@@ -331,18 +411,15 @@ export class PullRequestDetailPage implements OnInit, OnDestroy {
     ];
   });
 
+  /** Release notes: the same AI narration the platform already generates, one section per audience. */
   protected readonly aiSections = computed(() => {
     const ai = this.pr()?.aiSummary;
     return [
-      { label: 'Executive summary', body: ai?.executiveSummary },
-      { label: 'Technical summary', body: ai?.technicalSummary },
-      { label: 'Business impact', body: ai?.businessImpact },
-      { label: 'Integration impact', body: ai?.integrationImpact },
-      { label: 'Commerce impact', body: ai?.commerceImpact },
-      { label: 'Middleware impact', body: ai?.middlewareImpact },
-      { label: 'Target system impact', body: ai?.targetSystemImpact },
-      { label: 'Deployment notes', body: ai?.deploymentNotes },
-      { label: 'Rollback strategy', body: ai?.rollbackStrategy },
+      { label: 'Developer notes', body: ai?.technicalSummary },
+      { label: 'QA notes', body: ai?.qaSummary },
+      { label: 'Business notes', body: ai?.businessSummary },
+      { label: 'Client notes', body: ai?.clientSummary },
+      { label: 'Deployment strategy', body: ai?.deploymentStrategyExplanation },
     ];
   });
 
@@ -353,14 +430,35 @@ export class PullRequestDetailPage implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.state.destroy();
     this.contextPackage.destroy();
+    this.strategy.destroy();
   }
 
   protected reload(): void {
     this.state.load(this.api.getPullRequest(this.id()));
     this.contextPackage.load(this.api.getPullRequestContextPackage(this.id()));
+    this.strategy.load(this.api.getPullRequestDeploymentStrategy(this.id()));
   }
 
   protected reanalyze(): void {
     this.state.load(this.api.reanalyzePullRequest(this.id()));
+  }
+
+  protected confirmStrategy(choice: DeploymentStrategyType): void {
+    if (this.confirming()) {
+      return;
+    }
+    this.confirming.set(true);
+    this.api.confirmDeploymentStrategy(this.id(), choice).subscribe({
+      next: (detail) => {
+        this.confirming.set(false);
+        this.state.set(detail);
+        this.strategy.load(this.api.getPullRequestDeploymentStrategy(this.id()));
+        this.toast.success(`Confirmed ${choice} deployment`, 'Release notes generated.');
+      },
+      error: (error: { error?: { message?: string } }) => {
+        this.confirming.set(false);
+        this.toast.error('Could not confirm deployment strategy', error?.error?.message);
+      },
+    });
   }
 }

@@ -86,6 +86,14 @@ def _explain_readiness(readiness) -> str:
     return f"Deployment readiness {readiness.score}/100 — {readiness.status}. Composition: {factors}.{warnings}"
 
 
+def _explain_deployment_strategy(deployment_strategy) -> str:
+    if deployment_strategy is None or not deployment_strategy.matches:
+        return "No changed file required a specific deployment strategy; defaulting to rolling deployment."
+    evidence = " ".join(deployment_strategy.reasons) if deployment_strategy.reasons else ""
+    confidence = f" ({deployment_strategy.confidence} confidence)" if deployment_strategy.confidence else ""
+    return f"Deployment strategy {deployment_strategy.strategy}{confidence}. {evidence}"
+
+
 def _describe_drift(drift) -> str:
     if drift is None or not drift.baselineAvailable:
         return "Configuration drift could not be verified: no production baseline was available."
@@ -145,6 +153,7 @@ def narrate_analysis(request: AnalyzeRequest) -> AnalyzeResponse:
         riskExplanation=_explain_risk(risk),
         regressionGuidance=regression.disclaimer if regression else "",
         readinessExplanation=_explain_readiness(readiness),
+        deploymentStrategyExplanation=_explain_deployment_strategy(request.deploymentStrategy),
         provenanceClass="RULE_OUTPUT",
         fallback=True,
         provider="deterministic-template",

@@ -2,6 +2,7 @@ import {
   ConfidenceLevel, CountEntry, HealthStatus, ProvenanceClass, ReadinessStatus,
   ReleaseStatus, RiskLevel, Severity, TrendPoint,
 } from './common';
+import { DeploymentStrategyResult, DeploymentStrategyType } from './deployment-strategy';
 import { AiAnalysis } from './intelligence';
 import { Direction, RelatedArtifact } from './integration';
 
@@ -77,6 +78,8 @@ export interface PullRequestSummary {
   readonly capabilities?: readonly string[];
   readonly integrationTouched?: boolean;
   readonly ticketKey?: string;
+  /** ROLLING or MIGRATE — see the Deployment Strategy Advisor. */
+  readonly deploymentStrategyType?: DeploymentStrategyType;
 }
 
 export interface PullRequestDetail {
@@ -93,6 +96,9 @@ export interface PullRequestDetail {
   readonly changedFiles?: readonly ChangedFileContext[];
   readonly analyzed: boolean;
   readonly sapCommerceContext?: SapCommerceContext;
+  /** ROLLING or MIGRATE, and why — computed immediately after sapCommerceContext. */
+  readonly deploymentStrategy?: DeploymentStrategyResult;
+  readonly deploymentStrategyType?: DeploymentStrategyType;
   readonly integrationContext?: IntegrationContext;
   readonly impactAnalysis?: ImpactAnalysis;
   readonly regressionRecommendation?: RegressionRecommendation;
@@ -105,6 +111,10 @@ export interface PullRequestDetail {
   readonly deploymentReadinessScore?: number;
   readonly deploymentReadinessStatus?: ReadinessStatus;
   readonly provenanceClass?: ProvenanceClass;
+  /** The human decision on top of deploymentStrategyType — undefined until confirmed. */
+  readonly confirmedDeploymentStrategy?: DeploymentStrategyType;
+  readonly confirmedBy?: string;
+  readonly confirmedAt?: string;
 }
 
 export interface ChangedFileContext {
@@ -234,6 +244,12 @@ export interface ReleaseSummary {
   readonly aggregateRiskLevel?: RiskLevel;
   readonly readinessScore?: number;
   readonly readinessStatus?: ReadinessStatus;
+  /**
+   * ROLLING or MIGRATE — the release inherits this from its riskiest included
+   * pull request. Undefined until the release is built; see
+   * `ApiService.getReleaseDeploymentStrategy` for the full reasoning.
+   */
+  readonly deploymentStrategyType?: DeploymentStrategyType;
   readonly deployed: boolean;
   readonly deployedAt?: string;
   readonly deployedBy?: string;

@@ -1,5 +1,6 @@
 package com.gyansys.intellirelease.adapters.ai;
 
+import com.gyansys.intellirelease.domain.deployment.DeploymentStrategyResult;
 import com.gyansys.intellirelease.domain.drift.DriftItem;
 import com.gyansys.intellirelease.domain.impact.ImpactItem;
 import com.gyansys.intellirelease.domain.readiness.ReadinessFactor;
@@ -76,6 +77,7 @@ public class DeterministicNarrator {
                 explainRisk(risk),
                 regression == null ? "" : regression.disclaimer(),
                 explainReadiness(readiness),
+                explainDeploymentStrategy(request.deploymentStrategy()),
                 ProvenanceClass.RULE_OUTPUT,
                 true,
                 "deterministic-template",
@@ -182,6 +184,16 @@ public class DeterministicNarrator {
                 .collect(Collectors.joining("; "));
         return "Risk " + risk.score() + " " + risk.level() + " under policy "
                 + risk.policyVersion() + ". Contributing rules: " + breakdown + ".";
+    }
+
+    private String explainDeploymentStrategy(DeploymentStrategyResult deploymentStrategy) {
+        if (deploymentStrategy == null || deploymentStrategy.matches().isEmpty()) {
+            return "No changed file required a specific deployment strategy; defaulting to rolling deployment.";
+        }
+        String evidence = deploymentStrategy.reasons().isEmpty() ? deploymentStrategy.summarise()
+                : String.join(" ", deploymentStrategy.reasons());
+        return "Deployment strategy " + deploymentStrategy.strategy() + " (" + deploymentStrategy.confidence()
+                + " confidence). " + evidence;
     }
 
     private String explainReadiness(ReadinessResult readiness) {
