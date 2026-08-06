@@ -91,12 +91,11 @@ export function deploymentTone(status: DeploymentStatus | string | null | undefi
 
 export function releaseStatusTone(status: ReleaseStatus | string | null | undefined): Tone {
   switch (status) {
-    case 'DEPLOYED':
     case 'RELEASED': return 'success';
     case 'APPROVED': return 'accent';
-    case 'PENDING_APPROVAL': return 'warning';
+    case 'NOTES_GENERATED': return 'warning';
+    case 'ANALYZED':
     case 'BUILT': return 'info';
-    case 'ROLLED_BACK': return 'danger';
     case 'DRAFT': return 'neutral';
     default: return 'neutral';
   }

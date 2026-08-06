@@ -46,6 +46,19 @@ public class SecurityConfig {
         this.properties = properties;
     }
 
+    /**
+     * Repository full names ({@code owner/repo}) travel as a single, slash-encoded
+     * path segment — see {@code TomcatConfig}. Spring Security's default firewall
+     * rejects an encoded slash before the request ever reaches routing, regardless
+     * of the servlet container's own setting, so it needs its own opt-in here too.
+     */
+    @Bean
+    public org.springframework.security.web.firewall.HttpFirewall httpFirewall() {
+        var firewall = new org.springframework.security.web.firewall.StrictHttpFirewall();
+        firewall.setAllowUrlEncodedSlash(true);
+        return firewall;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http

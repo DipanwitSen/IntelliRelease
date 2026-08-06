@@ -2,6 +2,7 @@ package com.gyansys.intellirelease.repository;
 
 import com.gyansys.intellirelease.model.AuditEvent;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -16,6 +17,9 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
             String tenantId, OffsetDateTime since, Pageable pageable);
 
     List<AuditEvent> findByTenantIdOrderByTimestampDesc(String tenantId, Pageable pageable);
+
+    /** Unbounded, in-memory-filtered read for the audit log viewer — see {@code AuditController}. */
+    List<AuditEvent> findByTenantId(String tenantId, Sort sort);
 
     List<AuditEvent> findByTenantIdAndEntityTypeAndEntityIdOrderByTimestampDesc(
             String tenantId, String entityType, String entityId);
