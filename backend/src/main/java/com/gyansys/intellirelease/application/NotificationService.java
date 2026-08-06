@@ -1,0 +1,108 @@
+package com.gyansys.intellirelease.application;
+
+import com.gyansys.intellirelease.adapters.ai.AiSynthesisResponse;
+import com.gyansys.intellirelease.adapters.notify.EmailProvider;
+import com.gyansys.intellirelease.adapters.notify.TeamsWebhookProvider;
+import com.gyansys.intellirelease.config.IntelliReleaseProperties;
+import com.gyansys.intellirelease.infra.AuditWriter;
+import com.gyansys.intellirelease.model.Release;
+import com.gyansys.intellirelease.model.enums.ReleaseStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * Dispatches release notes: one audience-specific email per distribution
+ * list, and one combined post to Teams.
+ *
+ * <p>Every path here is gated on {@link ReleaseStatus#APPROVED}. This is the
+ * backend control CLAUDE.md's philosophy chain ends on — "AI explains. Humans
+ * approve." — enforced structurally: {@link ApprovalRequiredException} is
+ * thrown from this service, not checked in the controller, so there is no
+ * code path that reaches an SMTP send or a Teams post without a human having
+ * moved the release to APPROVED first.
+ */
+@Service
+public class NotificationService {
+
+    private final ReleaseService releaseService;
+    private final EmailProvider emailProvider;
+    private final TeamsWebhookProvider teamsProvider;
+    private final IntelliReleaseProperties.Email emailConfig;
+    private final AuditWriter auditWriter;
+
+    public NotificationService(ReleaseService releaseService,
+                               EmailProvider emailProvider,
+                               TeamsWebhookProvider teamsProvider,
+                               IntelliReleaseProperties properties,
+                               AuditWriter auditWriter) {
+        this.releaseService = releaseService;
+        this.emailProvider = emailProvider;
+        this.teamsProvider = teamsProvider;
+        this.emailConfig = properties.email();
+        this.auditWriter = auditWriter;
+    }
+
+    /** One line per audience: whether its email actually sent. */
+    public record EmailOutcome(String audience, String recipient, boolean sent) {
+    }
+
+    public record DispatchResult(
+            List<EmailOutcome> emails,
+            boolean teamsConfigured,
+            boolean teamsSent,
+            boolean fallback,
+            String provider
+    ) {
+    }
+
+    @Transactional
+    public Optional<DispatchResult> sendReleaseNotes(UUID releaseId, String actor) {
+        Optional<Release> found = releaseService.get(releaseId);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        Release release = found.get();
+
+        if (release.getStatus() != ReleaseStatus.APPROVED) {
+            throw new ApprovalRequiredException(
+                    "Release " + release.getVersion() + " is " + release.getStatus()
+                            + ", not APPROVED. Client-facing communication cannot be sent until a human approves it.");
+        }
+
+        AiSynthesisResponse notes = releaseService.synthesizeRelease(release);
+        String subjectPrefix = "[IntelliRelease] " + release.getRepoName() + " " + release.getVersion() + " — ";
+
+        List<EmailOutcome> emails = new ArrayList<>();
+        emails.add(sendAudienceEmail("Developer", emailConfig.developerDistribution(),
+                subjectPrefix + "Developer Notes", notes.developerNote()));
+        emails.add(sendAudienceEmail("QA", emailConfig.qaDistribution(),
+                subjectPrefix + "QA Notes", notes.qaNote()));
+        emails.add(sendAudienceEmail("Business", emailConfig.businessDistribution(),
+                subjectPrefix + "Business Notes", notes.businessNote()));
+        emails.add(sendAudienceEmail("Client", emailConfig.clientDistribution(),
+                subjectPrefix + "Client Notes", notes.clientNote()));
+
+        boolean teamsSent = teamsProvider.send(
+                "Release " + release.getVersion() + " shipped",
+                notes.releaseSummary() + "\n\n" + notes.clientNote());
+
+        int sentCount = (int) emails.stream().filter(EmailOutcome::sent).count();
+        auditWriter.record("RELEASE_NOTES_SENT", "Release", release.getReleaseId().toString(),
+                sentCount + "/" + emails.size() + " email(s) sent by " + actor
+                        + (teamsProvider.isConfigured() ? "; Teams post " + (teamsSent ? "succeeded" : "failed") : "; Teams not configured")
+                        + (notes.fallback() ? " (deterministic fallback content, AI unavailable)" : " (AI-generated content)"));
+
+        return Optional.of(new DispatchResult(emails, teamsProvider.isConfigured(), teamsSent,
+                notes.fallback(), notes.provider()));
+    }
+
+    private EmailOutcome sendAudienceEmail(String audience, String recipient, String subject, String body) {
+        boolean sent = emailProvider.send(recipient, subject, body);
+        return new EmailOutcome(audience, recipient, sent);
+    }
+}
