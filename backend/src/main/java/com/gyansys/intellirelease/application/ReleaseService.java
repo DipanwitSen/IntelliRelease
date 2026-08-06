@@ -94,8 +94,13 @@ public class ReleaseService {
     public record NoteBullet(Integer prNumber, String ticketKey, String text) {
     }
 
+    /** The same four audience notes {@code NotificationService} emails — previewed here first. */
+    public record AudienceNotes(String developer, String qa, String business, String client) {
+    }
+
     public record ReleaseNotes(
             String version, String plainText, List<NoteBullet> bullets,
+            AudienceNotes audienceNotes, String releaseSummary, String knownRisks, String deploymentRecommendation,
             boolean fallback, String provider
     ) {
     }
@@ -190,7 +195,12 @@ public class ReleaseService {
                     .toList();
 
             String text = renderPlainText(release.getVersion(), bullets);
-            return new ReleaseNotes(release.getVersion(), text, bullets, response.fallback(), response.provider());
+            AudienceNotes audienceNotes = new AudienceNotes(
+                    response.developerNote(), response.qaNote(), response.businessNote(), response.clientNote());
+
+            return new ReleaseNotes(release.getVersion(), text, bullets, audienceNotes,
+                    response.releaseSummary(), response.knownRisks(), response.deploymentRecommendation(),
+                    response.fallback(), response.provider());
         });
     }
 

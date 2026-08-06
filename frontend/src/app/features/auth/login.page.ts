@@ -285,10 +285,13 @@ export class LoginPage {
 
     // Set the credentials first so the interceptor attaches them to the probe,
     // then roll back if the backend rejects them — otherwise the shell would
-    // mount on bad credentials.
+    // mount on bad credentials. The probe is a real authenticated endpoint
+    // (not /actuator/health, which is public) so a wrong password is actually
+    // rejected here, and a successful call is also what triggers the
+    // backend's "you signed in" notification email.
     this.auth.login(this.username.trim(), this.password);
 
-    this.api.health().subscribe({
+    this.api.login().subscribe({
       next: () => this.busy.set(false),
       error: (response: { status?: number }) => {
         this.auth.logout();

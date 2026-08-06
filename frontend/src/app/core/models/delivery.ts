@@ -146,7 +146,7 @@ export interface IntegrationContext {
   readonly directions: readonly Direction[];
   readonly impactedInterfaces: readonly ImpactedInterface[];
   readonly impactedPayloads: readonly string[];
-  readonly impactedMappings: readonly string[];
+  readonly impactedMappings: readonly MappingRef[];
   readonly impactedDtos: readonly string[];
   readonly impactedCommerceModels: readonly string[];
   readonly impactedTargetObjects: readonly string[];
@@ -163,6 +163,13 @@ export interface ImpactedInterface {
   readonly reason: string;
   readonly severity: Severity;
   readonly confidence: ConfidenceLevel;
+}
+
+/** A mapping set a change reaches, with its current known issue count. */
+export interface MappingRef {
+  readonly id: string;
+  readonly name: string;
+  readonly issueCount: number;
 }
 
 export interface ImpactAnalysis {
@@ -263,14 +270,30 @@ export interface BuildResult {
   readonly resolverNotes?: readonly string[];
 }
 
+export interface NoteBullet {
+  readonly prNumber: number | null;
+  readonly ticketKey: string | null;
+  readonly text: string;
+}
+
+/** The same four audience notes NotificationService emails — previewed here first. */
+export interface AudienceNotes {
+  readonly developer: string;
+  readonly qa: string;
+  readonly business: string;
+  readonly client: string;
+}
+
 export interface ReleaseNotes {
-  readonly releaseId: string;
   readonly version: string;
-  readonly repoName: string;
-  readonly generatedAt?: string;
-  readonly bullets: readonly string[];
-  readonly aiFallbackUsed?: boolean;
-  readonly ai?: AiAnalysis;
+  readonly plainText: string;
+  readonly bullets: readonly NoteBullet[];
+  readonly audienceNotes?: AudienceNotes;
+  readonly releaseSummary?: string;
+  readonly knownRisks?: string;
+  readonly deploymentRecommendation?: string;
+  readonly fallback: boolean;
+  readonly provider: string;
 }
 
 export interface CreateReleaseRequest {
@@ -290,8 +313,10 @@ export interface NotifyResult {
 
 export interface EmailOutcome {
   readonly audience: string;
-  readonly recipients: readonly string[];
+  readonly recipient: string;
   readonly sent: boolean;
+  readonly relayConfigured: boolean;
+  readonly relayed: boolean;
   readonly error?: string;
 }
 

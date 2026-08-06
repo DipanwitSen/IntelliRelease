@@ -264,7 +264,10 @@
         <ul>
           <li *ngFor="let email of result.emails">
             {{ email.audience }} → {{ email.recipient }}:
-            <span [class]="email.sent ? 'deployed-badge' : 'risk-high'">{{ email.sent ? 'sent' : 'failed' }}</span>
+            <span [class]="email.sent ? 'deployed-badge' : 'risk-high'">{{ email.sent ? 'captured (MailHog)' : 'failed' }}</span>
+            <span *ngIf="email.relayConfigured" [class]="email.relayed ? 'deployed-badge' : 'risk-high'">
+              {{ email.relayed ? 'relayed (Outlook)' : 'relay failed' }}
+            </span>
           </li>
         </ul>
         <p class="hint" *ngIf="result.teamsConfigured">

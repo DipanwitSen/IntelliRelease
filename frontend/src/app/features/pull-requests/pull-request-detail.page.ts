@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, input } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { PullRequestDetail } from '../../core/models/delivery';
 import { ContextPackage } from '../../core/models/intelligence';
@@ -28,7 +29,7 @@ import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '
   imports: [
     PageHeaderComponent, SectionCardComponent, BadgeComponent, ProvenanceBadgeComponent,
     CodeViewerComponent, IconComponent, SkeletonComponent, ErrorPanelComponent,
-    EmptyStateComponent, AbsoluteTimePipe, FileSizePipe,
+    EmptyStateComponent, AbsoluteTimePipe, FileSizePipe, RouterLink,
   ],
   template: `
     <div class="page">
@@ -160,11 +161,37 @@ import { humanise, readinessTone, riskScoreTone, riskTone, severityTone } from '
                       <div class="section-title">Impacted interfaces</div>
                       <div class="stack-2" style="margin-top: var(--space-2)">
                         @for (item of integration.impactedInterfaces; track item.interfaceId) {
-                          <div class="row-2 impact-row">
+                          <div class="row-2 impact-row row-wrap">
                             <ir-badge [label]="item.severity" [tone]="severityTone(item.severity)" />
-                            <span class="weight-medium">{{ item.name }}</span>
+                            <a [routerLink]="['/integration/interfaces', item.interfaceId]" class="weight-medium">{{ item.name }}</a>
                             <span class="chip">{{ humanise(item.direction) }}</span>
                             <span class="text-sm secondary truncate">{{ item.reason }}</span>
+                            <span class="spacer"></span>
+                            <a
+                              [routerLink]="['/errors']"
+                              [queryParams]="{ interfaceId: item.interfaceId, interfaceName: item.name }"
+                              class="btn btn-ghost btn-sm"
+                            >
+                              <ir-icon name="alert-triangle" [size]="12" />
+                              Diagnose an error
+                            </a>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                  @if (integration.impactedMappings.length) {
+                    <div>
+                      <div class="section-title">Mapping sets touched</div>
+                      <div class="stack-2" style="margin-top: var(--space-2)">
+                        @for (mapping of integration.impactedMappings; track mapping.id) {
+                          <div class="row-2 impact-row">
+                            <a [routerLink]="['/mappings']" [queryParams]="{ set: mapping.id }" class="weight-medium">{{ mapping.name }}</a>
+                            @if (mapping.issueCount > 0) {
+                              <ir-badge [label]="mapping.issueCount + ' known issue' + (mapping.issueCount === 1 ? '' : 's')" tone="warning" [humanize]="false" />
+                            } @else {
+                              <span class="text-xs secondary">no known issues</span>
+                            }
                           </div>
                         }
                       </div>
@@ -297,7 +324,6 @@ export class PullRequestDetailPage implements OnInit, OnDestroy {
     const integration = this.pr()?.integrationContext;
     return [
       { label: 'Payloads', values: integration?.impactedPayloads ?? [] },
-      { label: 'Mappings', values: integration?.impactedMappings ?? [] },
       { label: 'DTOs', values: integration?.impactedDtos ?? [] },
       { label: 'Commerce models', values: integration?.impactedCommerceModels ?? [] },
       { label: 'Target objects', values: integration?.impactedTargetObjects ?? [] },

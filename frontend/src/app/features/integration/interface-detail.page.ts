@@ -11,7 +11,7 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { EmptyStateComponent, ErrorPanelComponent, SkeletonComponent } from '../../shared/components/states/states.component';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
-import { healthTone, humanise } from '../../shared/tone';
+import { healthTone, humanise, riskTone, severityTone } from '../../shared/tone';
 
 /** One interface: what it moves, how, between what, and how it is behaving. */
 @Component({
@@ -43,6 +43,14 @@ import { healthTone, humanise } from '../../shared/tone';
                 View flow
               </a>
             }
+            <a
+              [routerLink]="['/errors']"
+              [queryParams]="{ interfaceId: detail.id, interfaceName: detail.name }"
+              class="btn btn-sm btn-secondary"
+            >
+              <ir-icon name="alert-triangle" [size]="14" />
+              Diagnose an error
+            </a>
           </div>
         </ir-page-header>
 
@@ -135,6 +143,37 @@ import { healthTone, humanise } from '../../shared/tone';
           </ir-section-card>
         </div>
 
+        <ir-section-card title="Recent changes" icon="git-pull-request" [count]="detail.recentChanges.length">
+          @if (detail.recentChanges.length) {
+            <div class="stack-2">
+              @for (change of detail.recentChanges; track change.prId) {
+                <div class="row-2 change-row row-wrap">
+                  <ir-badge [label]="change.severity" [tone]="severityTone(change.severity)" />
+                  <a [routerLink]="['/pull-requests', change.prId]" class="weight-medium truncate">
+                    @if (change.prNumber) { #{{ change.prNumber }} }
+                    {{ change.title }}
+                  </a>
+                  @if (change.riskLevel) {
+                    <ir-badge [label]="change.riskLevel" [tone]="riskTone(change.riskLevel)" />
+                  }
+                  <span class="text-xs muted">{{ change.repoName }}</span>
+                  <span class="spacer"></span>
+                  @if (change.mergedAt) {
+                    <span class="text-xs muted">{{ change.mergedAt | relativeTime }}</span>
+                  }
+                </div>
+                <p class="text-xs secondary" style="margin: 0 0 var(--space-2) 0;">{{ change.reason }}</p>
+              }
+            </div>
+          } @else {
+            <ir-empty-state
+              icon="git-pull-request"
+              title="No captured changes yet"
+              body="No pull request received by webhook has touched this interface — this section fills in as soon as one does."
+            />
+          }
+        </ir-section-card>
+
         @if (detail.relatedArtifacts.length) {
           <ir-section-card title="Related artifacts" icon="file-code" [count]="detail.relatedArtifacts.length">
             <div class="stack-2">
@@ -163,6 +202,9 @@ import { healthTone, humanise } from '../../shared/tone';
         padding: var(--space-2) var(--space-3); flex-wrap: wrap;
         border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
       }
+      .change-row {
+        padding: var(--space-2) var(--space-3) 0;
+      }
     `,
   ],
 })
@@ -176,6 +218,8 @@ export class InterfaceDetailPage implements OnInit, OnDestroy {
 
   protected readonly healthTone = healthTone;
   protected readonly humanise = humanise;
+  protected readonly riskTone = riskTone;
+  protected readonly severityTone = severityTone;
 
   constructor() {
     effect(() => {

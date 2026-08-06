@@ -102,6 +102,21 @@ export interface IntegrationInterface {
   readonly provenance: ProvenanceClass;
   /** True when this interface was inferred from repository contents rather than declared. */
   readonly discovered: boolean;
+  /** Real captured pull requests whose changed files reached this interface. Empty on the list endpoint. */
+  readonly recentChanges: readonly RecentInterfaceChange[];
+}
+
+/** One real, captured pull request that reached this interface — not a catalogue entry. */
+export interface RecentInterfaceChange {
+  readonly prId: string;
+  readonly repoName: string;
+  readonly prNumber?: number;
+  readonly title: string;
+  readonly author?: string;
+  readonly mergedAt?: string;
+  readonly reason: string;
+  readonly severity: Severity;
+  readonly riskLevel?: string;
 }
 
 export interface InterfaceHealth {

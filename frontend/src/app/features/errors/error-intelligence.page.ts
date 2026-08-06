@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { Page } from '../../core/models/common';
 import { ErrorExplanation, ErrorOccurrence, ErrorPattern } from '../../core/models/intelligence';
@@ -32,7 +33,7 @@ type Tab = 'explain' | 'catalogue' | 'occurrences';
   imports: [
     PageHeaderComponent, SectionCardComponent, DataTableComponent, CellTemplateDirective,
     BadgeComponent, ProvenanceBadgeComponent, IconComponent, SkeletonComponent,
-    ErrorPanelComponent, EmptyStateComponent, RelativeTimePipe, FormsModule,
+    ErrorPanelComponent, EmptyStateComponent, RelativeTimePipe, FormsModule, RouterLink,
   ],
   template: `
     <div class="page">
@@ -60,6 +61,15 @@ type Tab = 'explain' | 'catalogue' | 'occurrences';
         @case ('explain') {
           <ir-section-card title="Explain an error" icon="sparkles">
             <div class="stack-3">
+              @if (presetInterface(); as scoped) {
+                <div class="row-2 scope-chip">
+                  <ir-icon name="network" [size]="13" />
+                  <span class="text-sm">Scoped to <strong>{{ scoped.name }}</strong> — matched interfaces and fixes are filtered to this interface first.</span>
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm" (click)="clearScope()" aria-label="Clear interface scope">
+                    <ir-icon name="x" [size]="13" />
+                  </button>
+                </div>
+              }
               <label class="field">
                 <span class="def-label">Raw error text</span>
                 <textarea
@@ -177,8 +187,8 @@ type Tab = 'explain' | 'catalogue' | 'occurrences';
                       <div>
                         <div class="section-title">Affected interfaces</div>
                         <div class="chip-row">
-                          @for (item of result.affectedInterfaces; track item) {
-                            <span class="chip">{{ item }}</span>
+                          @for (item of result.affectedInterfaces; track item.id) {
+                            <a [routerLink]="['/integration/interfaces', item.id]" class="chip chip-link">{{ item.name }}</a>
                           }
                         </div>
                       </div>
@@ -304,6 +314,16 @@ type Tab = 'explain' | 'catalogue' | 'occurrences';
         resize: vertical;
       }
       .field { display: flex; flex-direction: column; }
+      .scope-chip {
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--accent-subtle-fg);
+        background: var(--accent-subtle-bg);
+        border-radius: var(--radius-sm);
+        color: var(--accent-subtle-fg);
+      }
+      .scope-chip .btn { margin-left: auto; }
+      .chip-link { text-decoration: none; }
+      .chip-link:hover { border-color: var(--border-strong); }
       .location, .cause {
         padding: var(--space-3);
         border: 1px solid var(--border-subtle);
@@ -320,6 +340,10 @@ type Tab = 'explain' | 'catalogue' | 'occurrences';
 })
 export class ErrorIntelligencePage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly route = inject(ActivatedRoute);
+
+  /** Set when arriving from an interface's "Diagnose an error" link — narrows explain() to that interface. */
+  protected readonly presetInterface = signal<{ id: string; name: string } | null>(null);
 
   protected readonly tab = signal<Tab>('explain');
   protected readonly tabs: readonly { id: Tab; label: string }[] = [
@@ -366,6 +390,14 @@ export class ErrorIntelligencePage implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.patterns.load(this.api.listErrorPatterns(this.patternQuery()));
     this.occurrences.load(this.api.listErrorOccurrences({ page: 0, size: 100 }));
+
+    const params = this.route.snapshot.queryParamMap;
+    const interfaceId = params.get('interfaceId');
+    const interfaceName = params.get('interfaceName');
+    if (interfaceId && interfaceName) {
+      this.presetInterface.set({ id: interfaceId, name: interfaceName });
+      this.tab.set('explain');
+    }
   }
 
   ngOnDestroy(): void {
@@ -379,7 +411,15 @@ export class ErrorIntelligencePage implements OnInit, OnDestroy {
     if (!content) {
       return;
     }
-    this.explanation.load(this.api.explainError({ content, includeNarrative: this.includeNarrative }));
+    this.explanation.load(this.api.explainError({
+      content,
+      includeNarrative: this.includeNarrative,
+      interfaceId: this.presetInterface()?.id,
+    }));
+  }
+
+  protected clearScope(): void {
+    this.presetInterface.set(null);
   }
 
   protected onPatternSearch(term: string): void {

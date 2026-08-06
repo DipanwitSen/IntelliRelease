@@ -434,7 +434,20 @@ public final class IntegrationModel {
             String businessObject, String domain, String sourceSystem, String targetSystem,
             String middleware, String flowId, InterfaceHealth health,
             List<RelatedArtifact> relatedArtifacts, List<String> tags,
-            ProvenanceClass provenance, boolean discovered
+            ProvenanceClass provenance, boolean discovered,
+            /** Real captured pull requests whose changed files reached this interface. Empty on the list endpoint. */
+            List<RecentInterfaceChange> recentChanges
+    ) {
+    }
+
+    /**
+     * One real, captured pull request that reached this interface — not a
+     * catalogue entry. Sourced from the same {@link IntegrationContextExtractor}
+     * pass every pull request already goes through, filtered to this interface.
+     */
+    public record RecentInterfaceChange(
+            String prId, String repoName, Integer prNumber, String title, String author,
+            String mergedAt, String reason, String severity, String riskLevel
     ) {
     }
 
@@ -519,7 +532,7 @@ public final class IntegrationModel {
             List<String> directions,
             List<ImpactedInterface> impactedInterfaces,
             List<String> impactedPayloads,
-            List<String> impactedMappings,
+            List<MappingRef> impactedMappings,
             List<String> impactedDtos,
             List<String> impactedCommerceModels,
             List<String> impactedTargetObjects,
@@ -538,6 +551,10 @@ public final class IntegrationModel {
             String interfaceId, String name, String direction, String reason,
             String severity, String confidence
     ) {
+    }
+
+    /** A mapping set touched by a change, with its current known issue count — the "is this mapping still correct" signal. */
+    public record MappingRef(String id, String name, int issueCount) {
     }
 
     private static <T> List<T> nullSafe(List<T> value) {

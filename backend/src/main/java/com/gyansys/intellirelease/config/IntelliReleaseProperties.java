@@ -69,7 +69,43 @@ public record IntelliReleaseProperties(
     }
 
     public record Email(String from, String developerDistribution, String qaDistribution,
-                        String businessDistribution, String clientDistribution) {
+                        String businessDistribution, String clientDistribution,
+                        String securityNotificationRecipient, Relay relay) {
+        public Email {
+            relay = relay == null ? new Relay(null, 0, null, null, null) : relay;
+            securityNotificationRecipient = securityNotificationRecipient == null || securityNotificationRecipient.isBlank()
+                    ? "security-notifications@demo.local" : securityNotificationRecipient;
+        }
+
+        /**
+         * Real-world SMTP relay (e.g. Office365/Outlook) that mirrors every send
+         * MailHog captures. Optional: {@link #isConfigured()} is false until both
+         * a username and password are supplied, and the email provider skips
+         * the relay entirely in that case — MailHog capture keeps working either way.
+         *
+         * @param testRecipientOverride POC safety valve. Audience distribution lists
+         *                              (dev-team@demo.local etc.) are not real inboxes;
+         *                              when set, every relayed message is redirected here
+         *                              instead of the audience address, so testing real
+         *                              delivery never risks mailing a real distribution list.
+         */
+        public record Relay(String host, int port, String username, String password,
+                            String testRecipientOverride) {
+            public Relay {
+                host = host == null || host.isBlank() ? "smtp.office365.com" : host;
+                port = port <= 0 ? 587 : port;
+            }
+
+            public boolean isConfigured() {
+                return username != null && !username.isBlank() && password != null && !password.isBlank();
+            }
+
+            public String effectiveRecipient(String audienceRecipient) {
+                return testRecipientOverride != null && !testRecipientOverride.isBlank()
+                        ? testRecipientOverride
+                        : audienceRecipient;
+            }
+        }
     }
 
     public record Security(Jwt jwt) {

@@ -217,8 +217,38 @@ export class FlowVisualizerPage implements OnInit, OnDestroy {
       badges: [stage.protocol, stage.format].filter((value): value is string => !!value),
       optional: stage.optional,
       issueCount: stage.possibleErrors.length,
+      tone: this.toneFor(stage),
     })),
   );
+
+  /**
+   * Failure modes outrank stage kind — a stage with a known CRITICAL/HIGH
+   * error reads as danger even if it's otherwise a routine hop. Beyond that,
+   * kind carries the color: MIDDLEWARE/QUEUE hops are the integration seam,
+   * TARGET/ACKNOWLEDGEMENT is where the chain lands.
+   */
+  private toneFor(stage: FlowStage): DiagramStage['tone'] {
+    if (stage.possibleErrors.some((error) => error.severity === 'HIGH' || error.severity === 'CRITICAL')) {
+      return 'danger';
+    }
+    if (stage.possibleErrors.length) {
+      return 'warning';
+    }
+    switch (stage.kind) {
+      case 'TARGET':
+      case 'ACKNOWLEDGEMENT':
+        return 'success';
+      case 'MIDDLEWARE':
+      case 'QUEUE':
+      case 'ROUTING':
+      case 'TRANSPORT':
+        return 'accent';
+      case 'VALIDATION':
+        return 'info';
+      default:
+        return undefined;
+    }
+  }
 
   protected readonly diagramBranches = computed<readonly DiagramBranch[]>(() =>
     (this.selected()?.branches ?? []).map((branch) => ({

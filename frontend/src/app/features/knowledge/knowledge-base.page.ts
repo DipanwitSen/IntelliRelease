@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 import { Page } from '../../core/models/common';
 import { GlossaryTerm, KnowledgeArticle } from '../../core/models/intelligence';
@@ -101,7 +102,7 @@ import { humanise } from '../../shared/tone';
           </div>
           <p class="text-base">{{ article.summary }}</p>
           @if (article.body) {
-            <pre class="article-body">{{ article.body }}</pre>
+            <div class="article-body" [innerHTML]="renderMarkdown(article.body)"></div>
           }
           @if (article.references.length) {
             <div style="margin-top: var(--space-4)">
@@ -149,14 +150,20 @@ import { humanise } from '../../shared/tone';
         font-family: var(--font-sans);
         font-size: var(--text-md);
         line-height: var(--leading-relaxed);
-        white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
+      .article-body p { margin: 0 0 var(--space-3); }
+      .article-body p:last-child { margin-bottom: 0; }
+      .article-body ul { margin: 0 0 var(--space-3); padding-left: var(--space-5); }
+      .article-body ul:last-child { margin-bottom: 0; }
+      .article-body li { margin-bottom: var(--space-1); }
+      .article-body strong { font-weight: var(--weight-semibold); color: var(--text); }
     `,
   ],
 })
 export class KnowledgeBasePage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly sanitizer = inject(DomSanitizer);
 
   protected readonly state = new RequestState<Page<KnowledgeArticle>>();
   protected readonly glossary = new RequestState<GlossaryTerm[]>();
@@ -195,6 +202,30 @@ export class KnowledgeBasePage implements OnInit, OnDestroy {
     const category = (event.target as HTMLSelectElement).value || undefined;
     this.query.update((current) => ({ ...current, category, page: 0 }));
     this.reload();
+  }
+
+  /**
+   * The knowledge base's curated body text uses a light markdown dialect
+   * (`**bold**`, `- list items`) — rendered properly rather than shown as
+   * literal asterisks and dashes. Escaped before any markup is generated, so
+   * bypassing sanitization afterward only ever releases tags this method wrote.
+   */
+  protected renderMarkdown(text: string): SafeHtml {
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    const html = withBold
+      .split(/\n{2,}/)
+      .map((block) => {
+        const lines = block.split('\n').filter((line) => line.trim().length > 0);
+        if (lines.length && lines.every((line) => line.trim().startsWith('- '))) {
+          return `<ul>${lines.map((line) => `<li>${line.trim().slice(2)}</li>`).join('')}</ul>`;
+        }
+        return `<p>${lines.join('<br />')}</p>`;
+      })
+      .join('');
+
+    return this.sanitizer.bypassSecurityTrustHtml(html);
   }
 
   /** Fetches the full body — the list endpoint returns summaries only. */

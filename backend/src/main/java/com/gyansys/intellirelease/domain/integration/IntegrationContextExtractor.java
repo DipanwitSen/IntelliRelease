@@ -95,7 +95,7 @@ public class IntegrationContextExtractor {
                 distinct(definitions.stream().map(InterfaceDefinition::direction).toList()),
                 interfaces,
                 impactedPayloads(definitions),
-                List.copyOf(mappingSetIds),
+                impactedMappingRefs(mappingSetIds),
                 impactedDtos(mappingSetIds),
                 impactedCommerceModels(mappingSetIds),
                 impactedTargetObjects(mappingSetIds),
@@ -142,6 +142,23 @@ public class IntegrationContextExtractor {
                 .filter(payload -> payload.interfaceId() != null && interfaceIds.contains(payload.interfaceId()))
                 .map(IntegrationModel.SamplePayload::name)
                 .distinct()
+                .toList();
+    }
+
+    /**
+     * The mapping sets a change reaches, each carrying its current known issue
+     * count — the answer to "is the mapping still correct" for that set. The
+     * count comes from the same link statuses Mapping Explorer reads, so a
+     * change that lands on a set with three missing fields shows that
+     * immediately rather than requiring a second trip to Mapping Explorer.
+     */
+    private List<IntegrationModel.MappingRef> impactedMappingRefs(Set<String> mappingSetIds) {
+        return mappingSetIds.stream()
+                .map(catalog::findMappingSet)
+                .flatMap(java.util.Optional::stream)
+                .map(set -> new IntegrationModel.MappingRef(
+                        set.id(), set.name(),
+                        (int) set.links().stream().filter(IntegrationModel.MappingLinkDefinition::isIssue).count()))
                 .toList();
     }
 

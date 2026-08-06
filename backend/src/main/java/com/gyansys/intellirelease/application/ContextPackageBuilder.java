@@ -222,7 +222,11 @@ public class ContextPackageBuilder {
                     .append(", confidence ").append(item.confidence()).append(")\n");
         }
 
-        appendList(out, "impactedMappings", context.impactedMappings());
+        appendList(out, "impactedMappings", context.impactedMappings().stream()
+                .map(mapping -> mapping.issueCount() > 0
+                        ? mapping.name() + " (" + mapping.issueCount() + " known issue(s))"
+                        : mapping.name())
+                .toList());
         appendList(out, "impactedDtos", context.impactedDtos());
         appendList(out, "impactedCommerceModels", context.impactedCommerceModels());
         appendList(out, "impactedTargetObjects", context.impactedTargetObjects());

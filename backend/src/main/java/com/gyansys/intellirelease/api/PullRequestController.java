@@ -3,6 +3,7 @@ package com.gyansys.intellirelease.api;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.gyansys.intellirelease.application.ContextPackageBuilder;
+import com.gyansys.intellirelease.application.PullRequestAnalysisService;
 import com.gyansys.intellirelease.domain.integration.IntegrationContextExtractor;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.IntegrationContext;
 import com.gyansys.intellirelease.infra.JsonMapper;
@@ -20,13 +21,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -46,19 +47,22 @@ public class PullRequestController {
     private final JsonMapper jsonMapper;
     private final ContextPackageBuilder contextPackageBuilder;
     private final IntegrationContextExtractor integrationExtractor;
+    private final PullRequestAnalysisService analysisService;
 
     public PullRequestController(PullRequestRepository pullRequestRepository,
                                  PrAnalysisRepository prAnalysisRepository,
                                  TenantContext tenantContext,
                                  JsonMapper jsonMapper,
                                  ContextPackageBuilder contextPackageBuilder,
-                                 IntegrationContextExtractor integrationExtractor) {
+                                 IntegrationContextExtractor integrationExtractor,
+                                 PullRequestAnalysisService analysisService) {
         this.pullRequestRepository = pullRequestRepository;
         this.prAnalysisRepository = prAnalysisRepository;
         this.tenantContext = tenantContext;
         this.jsonMapper = jsonMapper;
         this.contextPackageBuilder = contextPackageBuilder;
         this.integrationExtractor = integrationExtractor;
+        this.analysisService = analysisService;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -233,14 +237,31 @@ public class PullRequestController {
     @GetMapping("/{id}")
     @Operation(summary = "One pull request's full captured facts plus its deterministic and AI analysis")
     public ResponseEntity<Detail> get(@PathVariable UUID id) {
-        Optional<PullRequest> pullRequest = pullRequestRepository.findById(id);
-        if (pullRequest.isEmpty()) {
+        return pullRequestRepository.findById(id)
+                .map(pr -> ResponseEntity.ok(toDetail(pr, prAnalysisRepository.findById(id).orElse(null))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/{id}/reanalyze")
+    @Operation(
+            summary = "Re-run the deterministic pipeline (and AI narration) for one pull request",
+            description = """
+                    Same engines the ingestion pipeline runs asynchronously after a webhook,
+                    triggered synchronously on demand — for a change captured before a rule
+                    update, or to retry after the AI service was unavailable the first time.
+                    Overwrites the previous pr_analysis row rather than creating a second one.
+                    """)
+    public ResponseEntity<Detail> reanalyze(@PathVariable UUID id) {
+        if (pullRequestRepository.findById(id).isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        PullRequest pr = pullRequest.get();
-        PrAnalysis analysis = prAnalysisRepository.findById(id).orElse(null);
+        PrAnalysis analysis = analysisService.analyze(id);
+        PullRequest pr = pullRequestRepository.findById(id).orElseThrow();
+        return ResponseEntity.ok(toDetail(pr, analysis));
+    }
 
-        Detail detail = new Detail(
+    private Detail toDetail(PullRequest pr, PrAnalysis analysis) {
+        return new Detail(
                 pr.getPrId(), pr.getRepoName(), pr.getPrNumber(), pr.getTitle(), pr.getDescription(),
                 pr.getAuthor(), pr.getBranch(), pr.getTicketKey(), pr.getMergeSha(),
                 pr.getMergedAt(), jsonMapper.readTree(pr.getChangedFiles()),
@@ -262,7 +283,5 @@ public class PullRequestController {
                 analysis == null ? null : analysis.getDeploymentReadinessStatus(),
                 analysis == null ? null : analysis.getProvenanceClass(),
                 integrationExtractor.extract(pathsOf(pr)));
-
-        return ResponseEntity.ok(detail);
     }
 }

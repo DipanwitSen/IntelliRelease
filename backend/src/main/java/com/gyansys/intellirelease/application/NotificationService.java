@@ -2,6 +2,7 @@ package com.gyansys.intellirelease.application;
 
 import com.gyansys.intellirelease.adapters.ai.AiSynthesisResponse;
 import com.gyansys.intellirelease.adapters.notify.EmailProvider;
+import com.gyansys.intellirelease.adapters.notify.ReleaseEmailTemplate;
 import com.gyansys.intellirelease.adapters.notify.TeamsWebhookProvider;
 import com.gyansys.intellirelease.config.IntelliReleaseProperties;
 import com.gyansys.intellirelease.infra.AuditWriter;
@@ -31,24 +32,34 @@ public class NotificationService {
 
     private final ReleaseService releaseService;
     private final EmailProvider emailProvider;
+    private final ReleaseEmailTemplate emailTemplate;
     private final TeamsWebhookProvider teamsProvider;
     private final IntelliReleaseProperties.Email emailConfig;
     private final AuditWriter auditWriter;
 
     public NotificationService(ReleaseService releaseService,
                                EmailProvider emailProvider,
+                               ReleaseEmailTemplate emailTemplate,
                                TeamsWebhookProvider teamsProvider,
                                IntelliReleaseProperties properties,
                                AuditWriter auditWriter) {
         this.releaseService = releaseService;
         this.emailProvider = emailProvider;
+        this.emailTemplate = emailTemplate;
         this.teamsProvider = teamsProvider;
         this.emailConfig = properties.email();
         this.auditWriter = auditWriter;
     }
 
-    /** One line per audience: whether its email actually sent. */
-    public record EmailOutcome(String audience, String recipient, boolean sent) {
+    /**
+     * One line per audience.
+     *
+     * @param sent            whether MailHog captured the message
+     * @param relayConfigured whether a real SMTP relay (Outlook) was configured for this send
+     * @param relayed         whether the relay leg actually delivered
+     */
+    public record EmailOutcome(String audience, String recipient, boolean sent,
+                               boolean relayConfigured, boolean relayed) {
     }
 
     public record DispatchResult(
@@ -78,22 +89,25 @@ public class NotificationService {
         String subjectPrefix = "[IntelliRelease] " + release.getRepoName() + " " + release.getVersion() + " — ";
 
         List<EmailOutcome> emails = new ArrayList<>();
-        emails.add(sendAudienceEmail("Developer", emailConfig.developerDistribution(),
-                subjectPrefix + "Developer Notes", notes.developerNote()));
-        emails.add(sendAudienceEmail("QA", emailConfig.qaDistribution(),
-                subjectPrefix + "QA Notes", notes.qaNote()));
-        emails.add(sendAudienceEmail("Business", emailConfig.businessDistribution(),
-                subjectPrefix + "Business Notes", notes.businessNote()));
-        emails.add(sendAudienceEmail("Client", emailConfig.clientDistribution(),
-                subjectPrefix + "Client Notes", notes.clientNote()));
+        emails.add(sendAudienceEmail(release, "Developer", emailConfig.developerDistribution(),
+                subjectPrefix + "Developer Notes", notes.developerNote(), notes));
+        emails.add(sendAudienceEmail(release, "QA", emailConfig.qaDistribution(),
+                subjectPrefix + "QA Notes", notes.qaNote(), notes));
+        emails.add(sendAudienceEmail(release, "Business", emailConfig.businessDistribution(),
+                subjectPrefix + "Business Notes", notes.businessNote(), notes));
+        emails.add(sendAudienceEmail(release, "Client", emailConfig.clientDistribution(),
+                subjectPrefix + "Client Notes", notes.clientNote(), notes));
 
         boolean teamsSent = teamsProvider.send(
-                "Release " + release.getVersion() + " shipped",
-                notes.releaseSummary() + "\n\n" + notes.clientNote());
+                "Release " + release.getRepoName() + " " + release.getVersion() + " shipped",
+                "**Risk:** " + (release.getAggregateRiskLevel() == null ? "UNKNOWN" : release.getAggregateRiskLevel())
+                        + "  \n\n" + notes.releaseSummary() + "\n\n" + notes.clientNote());
 
         int sentCount = (int) emails.stream().filter(EmailOutcome::sent).count();
+        int relayedCount = (int) emails.stream().filter(EmailOutcome::relayed).count();
         auditWriter.record("RELEASE_NOTES_SENT", "Release", release.getReleaseId().toString(),
-                sentCount + "/" + emails.size() + " email(s) sent by " + actor
+                sentCount + "/" + emails.size() + " email(s) captured by MailHog, "
+                        + relayedCount + " relayed to Outlook, sent by " + actor
                         + (teamsProvider.isConfigured() ? "; Teams post " + (teamsSent ? "succeeded" : "failed") : "; Teams not configured")
                         + (notes.fallback() ? " (deterministic fallback content, AI unavailable)" : " (AI-generated content)"));
 
@@ -101,8 +115,11 @@ public class NotificationService {
                 notes.fallback(), notes.provider()));
     }
 
-    private EmailOutcome sendAudienceEmail(String audience, String recipient, String subject, String body) {
-        boolean sent = emailProvider.send(recipient, subject, body);
-        return new EmailOutcome(audience, recipient, sent);
+    private EmailOutcome sendAudienceEmail(Release release, String audience, String recipient, String subject,
+                                           String note, AiSynthesisResponse notes) {
+        String html = emailTemplate.renderHtml(release, audience, note, notes);
+        String text = emailTemplate.renderText(release, audience, note, notes);
+        EmailProvider.Outcome outcome = emailProvider.send(recipient, subject, html, text);
+        return new EmailOutcome(audience, recipient, outcome.sent(), outcome.relayConfigured(), outcome.relayed());
     }
 }

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject
 import { RouterLink } from '@angular/router';
 
 import { Page } from '../../core/models/common';
-import { ReleaseNotes, ReleaseSummary } from '../../core/models/delivery';
+import { AudienceNotes, ReleaseNotes, ReleaseSummary } from '../../core/models/delivery';
 import { ApiService } from '../../core/services/api.service';
 import { RequestState } from '../../core/services/request-state';
 import { BadgeComponent, ProvenanceBadgeComponent } from '../../shared/components/badge/badge.component';
@@ -12,7 +12,7 @@ import { SectionCardComponent } from '../../shared/components/section-card/secti
 import { EmptyStateComponent, ErrorPanelComponent, SkeletonComponent } from '../../shared/components/states/states.component';
 import { releaseStatusTone } from '../../shared/tone';
 
-type Audience = 'executive' | 'technical' | 'qa' | 'business' | 'customer';
+type Audience = 'developer' | 'qa' | 'business' | 'client';
 
 /**
  * Release notes, per audience, previewed before anything is sent.
@@ -70,7 +70,7 @@ type Audience = 'executive' | 'technical' | 'qa' | 'business' | 'customer';
         <ir-error-panel [message]="notes.error()!" (retry)="loadNotes()" />
       } @else {
       @if (notes.data(); as content) {
-        @if (content.aiFallbackUsed) {
+        @if (content.fallback) {
           <div class="callout tone-warning">
             <ir-icon name="alert-triangle" [size]="16" class="callout-icon" />
             <div>
@@ -85,8 +85,16 @@ type Audience = 'executive' | 'technical' | 'qa' | 'business' | 'customer';
           <div actions><ir-provenance value="DERIVED_FACT" /></div>
           @if (content.bullets.length) {
             <ul class="notes-list">
-              @for (bullet of content.bullets; track bullet) {
-                <li>{{ bullet }}</li>
+              @for (bullet of content.bullets; track bullet.text) {
+                <li>
+                  @if (bullet.prNumber) {
+                    <span class="mono text-xs muted">#{{ bullet.prNumber }}</span>
+                  }
+                  {{ bullet.text }}
+                  @if (bullet.ticketKey) {
+                    <span class="chip chip-mono">{{ bullet.ticketKey }}</span>
+                  }
+                </li>
               }
             </ul>
           } @else {
@@ -94,9 +102,9 @@ type Audience = 'executive' | 'technical' | 'qa' | 'business' | 'customer';
           }
         </ir-section-card>
 
-        @if (content.ai?.releaseNotes) {
-          <ir-section-card title="Audience notes" icon="send">
-            <div actions><ir-provenance value="AI_INFERENCE" /></div>
+        @if (content.audienceNotes; as audienceNotes) {
+          <ir-section-card title="Audience notes" subtitle="Exactly what each distribution list receives when notes are sent." icon="send">
+            <div actions><ir-provenance [value]="content.fallback ? 'RULE_OUTPUT' : 'AI_INFERENCE'" /></div>
 
             <div class="tabs" role="tablist">
               @for (option of audiences; track option.id) {
@@ -113,7 +121,7 @@ type Audience = 'executive' | 'technical' | 'qa' | 'business' | 'customer';
             </div>
 
             <div class="audience-body">
-              @if (audienceText(); as text) {
+              @if (audienceText(audienceNotes); as text) {
                 <p class="text-base">{{ text }}</p>
               } @else {
                 <ir-empty-state
@@ -121,6 +129,26 @@ type Audience = 'executive' | 'technical' | 'qa' | 'business' | 'customer';
                   title="Nothing written for this audience"
                   body="The AI service only writes a section when the deterministic pipeline gave it something to say. An empty section means there was nothing relevant, not that generation failed."
                 />
+              }
+            </div>
+          </ir-section-card>
+        }
+
+        @if (content.knownRisks || content.deploymentRecommendation) {
+          <ir-section-card title="Risks & recommendation" icon="alert-triangle">
+            <div actions><ir-provenance [value]="content.fallback ? 'RULE_OUTPUT' : 'AI_INFERENCE'" /></div>
+            <div class="stack-3">
+              @if (content.knownRisks) {
+                <div>
+                  <div class="section-title">Known risks</div>
+                  <p class="text-sm secondary" style="margin-top: var(--space-1)">{{ content.knownRisks }}</p>
+                </div>
+              }
+              @if (content.deploymentRecommendation) {
+                <div>
+                  <div class="section-title">Deployment recommendation</div>
+                  <p class="text-sm secondary" style="margin-top: var(--space-1)">{{ content.deploymentRecommendation }}</p>
+                </div>
               }
             </div>
           </ir-section-card>
@@ -144,16 +172,15 @@ export class ReleaseNotesPage implements OnInit, OnDestroy {
   protected readonly notes = new RequestState<ReleaseNotes>();
 
   protected readonly selectedId = signal<string | null>(null);
-  protected readonly audience = signal<Audience>('executive');
+  protected readonly audience = signal<Audience>('developer');
 
   protected readonly releaseStatusTone = releaseStatusTone;
 
   protected readonly audiences: readonly { id: Audience; label: string }[] = [
-    { id: 'executive', label: 'Executive' },
-    { id: 'technical', label: 'Technical' },
+    { id: 'developer', label: 'Developer' },
     { id: 'qa', label: 'QA' },
     { id: 'business', label: 'Business' },
-    { id: 'customer', label: 'Customer' },
+    { id: 'client', label: 'Client' },
   ];
 
   protected readonly releases = computed(() => this.list.data()?.items ?? []);
@@ -162,10 +189,9 @@ export class ReleaseNotesPage implements OnInit, OnDestroy {
     this.releases().find((release) => release.releaseId === this.selectedId()) ?? null,
   );
 
-  protected readonly audienceText = computed(() => {
-    const notes = this.notes.data()?.ai?.releaseNotes;
-    return notes ? notes[this.audience()] ?? null : null;
-  });
+  protected audienceText(notes: AudienceNotes): string | null {
+    return notes[this.audience()] || null;
+  }
 
   ngOnInit(): void {
     this.list.load(this.api.listReleases({ page: 0, size: 200 }));

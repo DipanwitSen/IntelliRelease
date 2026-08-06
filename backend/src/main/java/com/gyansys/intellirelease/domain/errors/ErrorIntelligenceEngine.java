@@ -8,7 +8,6 @@ import com.gyansys.intellirelease.domain.errors.ErrorModel.ErrorLocation;
 import com.gyansys.intellirelease.domain.errors.ErrorModel.ErrorPattern;
 import com.gyansys.intellirelease.domain.errors.ErrorModel.ErrorSignature;
 import com.gyansys.intellirelease.domain.integration.IntegrationCatalog;
-import com.gyansys.intellirelease.domain.integration.IntegrationModel.InterfaceDefinition;
 import com.gyansys.intellirelease.model.enums.ProvenanceClass;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -214,10 +213,10 @@ public class ErrorIntelligenceEngine {
      * surfaces pricing interfaces. Deliberately not "every interface", which
      * would be technically true and completely useless.
      */
-    private List<String> affectedInterfaces(ErrorPattern pattern, String interfaceId) {
+    private List<ErrorModel.InterfaceRef> affectedInterfaces(ErrorPattern pattern, String interfaceId) {
         if (interfaceId != null && !interfaceId.isBlank()) {
             return integrationCatalog.findInterface(interfaceId)
-                    .map(definition -> List.of(definition.name()))
+                    .map(definition -> List.of(new ErrorModel.InterfaceRef(definition.id(), definition.name())))
                     .orElse(List.of());
         }
 
@@ -228,7 +227,7 @@ public class ErrorIntelligenceEngine {
 
         return integrationCatalog.interfaces().stream()
                 .filter(definition -> definition.tags().stream().anyMatch(tags::contains))
-                .map(InterfaceDefinition::name)
+                .map(definition -> new ErrorModel.InterfaceRef(definition.id(), definition.name()))
                 .limit(6)
                 .toList();
     }

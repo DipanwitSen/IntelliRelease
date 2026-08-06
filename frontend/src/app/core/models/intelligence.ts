@@ -84,6 +84,12 @@ export interface DocumentationLink {
   readonly kind: 'SAP_NOTE' | 'HELP_PORTAL' | 'INTERNAL' | 'RUNBOOK' | 'BLOG' | string;
 }
 
+/** Enough to link back into the Integration Center without a second lookup. */
+export interface InterfaceRef {
+  readonly id: string;
+  readonly name: string;
+}
+
 /** The result of running a raw error through the classifier. */
 export interface ErrorExplanation {
   readonly inputExcerpt: string;
@@ -94,7 +100,7 @@ export interface ErrorExplanation {
   readonly matchedSignatures: readonly string[];
   readonly whatHappened: string;
   readonly whereItFailed: readonly ErrorLocation[];
-  readonly affectedInterfaces: readonly string[];
+  readonly affectedInterfaces: readonly InterfaceRef[];
   readonly affectedPayloadFields: readonly string[];
   readonly affectedReleases: readonly AffectedRelease[];
   readonly similarIncidents: readonly SimilarIncident[];

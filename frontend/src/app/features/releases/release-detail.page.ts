@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { BuildResult, ReleaseDetail, ReleaseNotes } from '../../core/models/delivery';
+import { BuildResult, NotifyResult, ReleaseDetail, ReleaseNotes } from '../../core/models/delivery';
 import { ApiService } from '../../core/services/api.service';
 import { BreadcrumbService } from '../../core/services/breadcrumb.service';
 import { RequestState } from '../../core/services/request-state';
@@ -151,15 +151,20 @@ import { readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
             <ir-skeleton [rows]="5" />
           } @else {
       @if (notes.data(); as content) {
-            @if (content.aiFallbackUsed) {
+            @if (content.fallback) {
               <div class="callout tone-warning" style="margin-bottom: var(--space-3)">
                 <ir-icon name="alert-triangle" [size]="16" class="callout-icon" />
                 <div>The AI service was unavailable — these notes came from the deterministic narrator.</div>
               </div>
             }
             <ul class="notes-list">
-              @for (bullet of content.bullets; track bullet) {
-                <li>{{ bullet }}</li>
+              @for (bullet of content.bullets; track bullet.text) {
+                <li>
+                  @if (bullet.prNumber) {
+                    <span class="mono text-xs muted">#{{ bullet.prNumber }}</span>
+                  }
+                  {{ bullet.text }}
+                </li>
               }
             </ul>
           } @else {
@@ -196,6 +201,36 @@ import { readinessTone, releaseStatusTone, riskTone } from '../../shared/tone';
             }
           </ir-section-card>
         }
+
+        @if (notifyResult(); as result) {
+          <ir-section-card title="Notification result" icon="send" [collapsible]="true">
+            <div class="stack-2">
+              @for (email of result.emails; track email.audience) {
+                <div class="row-2 pr-row">
+                  <span class="weight-medium">{{ email.audience }}</span>
+                  <span class="text-xs muted truncate">{{ email.recipient }}</span>
+                  <span class="spacer"></span>
+                  <ir-badge [label]="email.sent ? 'MailHog: captured' : 'MailHog: failed'" [tone]="email.sent ? 'success' : 'danger'" />
+                  @if (email.relayConfigured) {
+                    <ir-badge [label]="email.relayed ? 'Outlook: relayed' : 'Outlook: failed'" [tone]="email.relayed ? 'success' : 'danger'" />
+                  }
+                </div>
+              }
+            </div>
+            <div class="def-grid" style="margin-top: var(--space-3)">
+              <div>
+                <div class="def-label">Teams</div>
+                <div class="def-value">
+                  {{ result.teamsConfigured ? (result.teamsSent ? 'Posted' : 'Failed') : 'Not configured — skipped' }}
+                </div>
+              </div>
+              <div>
+                <div class="def-label">Content source</div>
+                <div class="def-value">{{ result.fallback ? 'Deterministic fallback' : result.provider }}</div>
+              </div>
+            </div>
+          </ir-section-card>
+        }
       }
       }
     </div>
@@ -222,6 +257,7 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
   protected readonly state = new RequestState<ReleaseDetail>();
   protected readonly notes = new RequestState<ReleaseNotes>();
   protected readonly buildResult = signal<BuildResult | null>(null);
+  protected readonly notifyResult = signal<NotifyResult | null>(null);
   protected readonly busy = signal(false);
 
   protected readonly release = this.state.data;
@@ -301,6 +337,7 @@ export class ReleaseDetailPage implements OnInit, OnDestroy {
     this.api.sendReleaseNotifications(this.id()).subscribe({
       next: (result) => {
         this.busy.set(false);
+        this.notifyResult.set(result);
         const sent = result.emails.filter((email) => email.sent).length;
         this.toast.success('Notes sent', `${sent} email(s)${result.teamsSent ? ' and a Teams post' : ''}.`);
         this.reload();

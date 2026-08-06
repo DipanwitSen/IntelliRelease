@@ -1,9 +1,13 @@
 package com.gyansys.intellirelease.api;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.gyansys.intellirelease.domain.integration.IntegrationCatalog;
+import com.gyansys.intellirelease.domain.integration.IntegrationContextExtractor;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.ApiDefinition;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.CountEntry;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.FlowDefinition;
+import com.gyansys.intellirelease.domain.integration.IntegrationModel.ImpactedInterface;
+import com.gyansys.intellirelease.domain.integration.IntegrationModel.IntegrationContext;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.IntegrationHealthSnapshot;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.IntegrationOverview;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.InterfaceDefinition;
@@ -12,12 +16,20 @@ import com.gyansys.intellirelease.domain.integration.IntegrationModel.InterfaceV
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.MappingLinkView;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.MappingSetDefinition;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.MappingSetView;
+import com.gyansys.intellirelease.domain.integration.IntegrationModel.RecentInterfaceChange;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.TopologyProfile;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.TopologyStageView;
 import com.gyansys.intellirelease.domain.integration.IntegrationModel.TopologySummaryView;
+import com.gyansys.intellirelease.infra.JsonMapper;
+import com.gyansys.intellirelease.infra.TenantContext;
+import com.gyansys.intellirelease.model.PrAnalysis;
+import com.gyansys.intellirelease.model.PullRequest;
 import com.gyansys.intellirelease.model.enums.ProvenanceClass;
+import com.gyansys.intellirelease.repository.PrAnalysisRepository;
+import com.gyansys.intellirelease.repository.PullRequestRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,9 +37,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.Map;
 
 /**
@@ -50,9 +65,24 @@ public class IntegrationController {
                     + "Structure, contracts and change impact below are derived deterministically and are accurate.";
 
     private final IntegrationCatalog catalog;
+    private final IntegrationContextExtractor integrationExtractor;
+    private final PullRequestRepository pullRequestRepository;
+    private final PrAnalysisRepository prAnalysisRepository;
+    private final TenantContext tenantContext;
+    private final JsonMapper jsonMapper;
 
-    public IntegrationController(IntegrationCatalog catalog) {
+    public IntegrationController(IntegrationCatalog catalog,
+                                 IntegrationContextExtractor integrationExtractor,
+                                 PullRequestRepository pullRequestRepository,
+                                 PrAnalysisRepository prAnalysisRepository,
+                                 TenantContext tenantContext,
+                                 JsonMapper jsonMapper) {
         this.catalog = catalog;
+        this.integrationExtractor = integrationExtractor;
+        this.pullRequestRepository = pullRequestRepository;
+        this.prAnalysisRepository = prAnalysisRepository;
+        this.tenantContext = tenantContext;
+        this.jsonMapper = jsonMapper;
     }
 
     /* ------------------------------------------------------------ overview */
@@ -131,12 +161,70 @@ public class IntegrationController {
     }
 
     @GetMapping("/interfaces/{id}")
-    @Operation(summary = "One interface in full")
+    @Operation(
+            summary = "One interface in full, including real pull requests that reached it",
+            description = """
+                    recentChanges is not catalogue data — it is the same integration-context
+                    pass every captured pull request already goes through, filtered to this
+                    interface. A merged pull request that touches it shows up here whether or
+                    not anyone opened the Integration Center that day.
+                    """)
     public ResponseEntity<InterfaceView> interfaceDetail(@PathVariable String id) {
         return catalog.findInterface(id)
-                .map(this::toView)
+                .map(definition -> toView(definition, recentChangesFor(definition.id())))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Scans captured pull requests for ones whose changed files reach this
+     * interface, most recently merged first. Bounded to a recent window and a
+     * result cap — this answers "what recently touched this interface", not
+     * "every pull request in this repository's history".
+     */
+    private List<RecentInterfaceChange> recentChangesFor(String interfaceId) {
+        String tenantId = tenantContext.currentTenantId();
+        List<PullRequest> pullRequests = pullRequestRepository
+                .findByTenantIdOrderByMergedAtDesc(tenantId, PageRequest.of(0, 300));
+
+        Map<UUID, PrAnalysis> analyses = prAnalysisRepository
+                .findByPrIdIn(pullRequests.stream().map(PullRequest::getPrId).toList()).stream()
+                .collect(java.util.stream.Collectors.toMap(PrAnalysis::getPrId, a -> a, (a, b) -> a));
+
+        List<RecentInterfaceChange> changes = new ArrayList<>();
+        for (PullRequest pr : pullRequests) {
+            IntegrationContext context = integrationExtractor.extract(pathsOf(pr));
+            for (ImpactedInterface impact : context.impactedInterfaces()) {
+                if (impact.interfaceId().equals(interfaceId)) {
+                    PrAnalysis analysis = analyses.get(pr.getPrId());
+                    changes.add(new RecentInterfaceChange(
+                            pr.getPrId().toString(), pr.getRepoName(), pr.getPrNumber(), pr.getTitle(),
+                            pr.getAuthor(), pr.getMergedAt() == null ? null : pr.getMergedAt().toString(),
+                            impact.reason(), impact.severity(),
+                            analysis == null ? null : String.valueOf(analysis.getRiskLevel())));
+                    break;
+                }
+            }
+            if (changes.size() >= 10) {
+                break;
+            }
+        }
+        return changes;
+    }
+
+    private List<String> pathsOf(PullRequest pr) {
+        JsonNode files = jsonMapper.readTree(pr.getChangedFiles());
+        if (files == null || !files.isArray()) {
+            return List.of();
+        }
+        List<String> paths = new ArrayList<>(files.size());
+        files.forEach(entry -> {
+            JsonNode pathNode = entry.isTextual() ? entry : entry.get("path");
+            if (pathNode != null && pathNode.isTextual()) {
+                paths.add(pathNode.asText());
+            }
+        });
+        return paths;
     }
 
     /* ------------------------------------------------------------ mapping */
@@ -167,6 +255,10 @@ public class IntegrationController {
     }
 
     private InterfaceView toView(InterfaceDefinition definition) {
+        return toView(definition, List.of());
+    }
+
+    private InterfaceView toView(InterfaceDefinition definition, List<RecentInterfaceChange> recentChanges) {
         return new InterfaceView(
                 definition.id(), definition.name(), definition.description(),
                 definition.direction(), definition.style(), definition.topology(),
@@ -179,7 +271,8 @@ public class IntegrationController {
                 // The catalogue is curated knowledge applied by rules, not a
                 // measurement and not a model's opinion.
                 ProvenanceClass.RULE_OUTPUT,
-                false);
+                false,
+                recentChanges);
     }
 
     private IntegrationHealthSnapshot healthSnapshot(int totalInterfaces) {

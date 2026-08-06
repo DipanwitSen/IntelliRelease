@@ -42,6 +42,15 @@ export class ApiService {
     return this.http.get<{ status: string }>(`${this.baseUrl}/actuator/health`);
   }
 
+  /**
+   * Confirms sign-in against real credentials — unlike health(), this requires
+   * authentication, so a wrong password is rejected here rather than silently
+   * passing. Also triggers the backend's "you signed in" notification email.
+   */
+  login(): Observable<LoginResponse> {
+    return this.http.post<LoginResponse>(`${this.api}/auth/login`, {});
+  }
+
   aiStatus(): Observable<AiServiceStatus> {
     return this.http.get<AiServiceStatus>(`${this.api}/ai/status`);
   }
@@ -437,4 +446,10 @@ export interface ExplainErrorRequest {
   interfaceId?: string;
   /** When false the backend returns the deterministic explanation only. */
   includeNarrative?: boolean;
+}
+
+export interface LoginResponse {
+  readonly username: string;
+  readonly roles: readonly string[];
+  readonly loggedInAt: string;
 }

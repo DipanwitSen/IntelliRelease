@@ -68,7 +68,7 @@ export interface ReleaseNotes {
 
 /** Mirrors ReleaseController.NotifyResponse on the backend. */
 export interface NotifyResponse {
-  emails: { audience: string; recipient: string; sent: boolean }[];
+  emails: { audience: string; recipient: string; sent: boolean; relayConfigured: boolean; relayed: boolean }[];
   teamsConfigured: boolean;
   teamsSent: boolean;
   fallback: boolean;

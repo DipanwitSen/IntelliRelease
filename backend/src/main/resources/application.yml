@@ -25,15 +25,9 @@ spring:
     # only JSONB/UUID-default syntax differs between the two engines.
     locations: ${FLYWAY_LOCATIONS:classpath:db/migration/{vendor}}
     baseline-on-migrate: true
-  mail:
-    host: ${SMTP_HOST:localhost}
-    port: ${SMTP_PORT:1025}
-    properties:
-      mail:
-        smtp:
-          auth: false
-          starttls:
-            enable: false
+  # No spring.mail.* here — MailConfig.mailHogSender defines that sender
+  # explicitly (same SMTP_HOST/SMTP_PORT env vars), so there is exactly one
+  # bean to ever be ambiguous about instead of one from here plus one there.
   h2:
     console:
       enabled: true
@@ -65,6 +59,17 @@ intellirelease:
     qa-distribution: ${QA_DISTRIBUTION:qa-team@demo.local}
     business-distribution: ${BUSINESS_DISTRIBUTION:business-team@demo.local}
     client-distribution: ${CLIENT_DISTRIBUTION:client-comms@demo.local}
+    security-notification-recipient: ${SECURITY_NOTIFICATION_RECIPIENT:security-notifications@demo.local}
+    relay:
+      # Real-world mirror of every send (e.g. Office365/Outlook SMTP AUTH relay).
+      # Unset username/password = relay skipped; MailHog capture is unaffected.
+      host: ${OUTLOOK_SMTP_HOST:smtp.office365.com}
+      port: ${OUTLOOK_SMTP_PORT:587}
+      username: ${OUTLOOK_SMTP_USERNAME:}
+      password: ${OUTLOOK_SMTP_PASSWORD:}
+      # POC safety valve: redirect every relayed message to one real inbox
+      # instead of the (fake) audience distribution lists.
+      test-recipient-override: ${OUTLOOK_TEST_RECIPIENT:}
   security:
     jwt:
       issuer: ${JWT_ISSUER:intellirelease-poc}

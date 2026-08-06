@@ -131,7 +131,7 @@ public final class ErrorModel {
             List<String> matchedSignatures,
             String whatHappened,
             List<ErrorLocation> whereItFailed,
-            List<String> affectedInterfaces,
+            List<InterfaceRef> affectedInterfaces,
             List<String> affectedPayloadFields,
             List<AffectedRelease> affectedReleases,
             List<SimilarIncident> similarIncidents,
@@ -156,6 +156,10 @@ public final class ErrorModel {
 
     public record ErrorLocation(String layer, String component, String detail,
                                 String evidence, String confidence) {
+    }
+
+    /** Enough to link back into the Integration Center without a second lookup. */
+    public record InterfaceRef(String id, String name) {
     }
 
     public record AffectedRelease(String releaseId, String version, String repoName, String deployedAt) {
