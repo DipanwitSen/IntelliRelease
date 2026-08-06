@@ -128,6 +128,23 @@ public class Release {
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
+    /**
+     * Human-asserted confirmation that this version is actually running in
+     * the target environment. Deliberately independent of {@link #status} —
+     * {@link com.gyansys.intellirelease.model.enums.ReleaseStatus#RELEASED}
+     * means communications were sent, which is a different fact from the
+     * code being live, and the two do not always happen in that order.
+     */
+    @Column(name = "deployed_at")
+    private OffsetDateTime deployedAt;
+
+    @Column(name = "deployed_by", length = 255)
+    private String deployedBy;
+
+    public boolean isDeployed() {
+        return deployedAt != null;
+    }
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "release_pr",
