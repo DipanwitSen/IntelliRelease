@@ -1,0 +1,883 @@
+{
+  "$schema": "https://intellirelease.dev/schemas/error-catalog/v1.json",
+  "meta": {
+    "name": "Integration Error Intelligence Catalogue",
+    "version": "1.0.0",
+    "purpose": "Turns raw exceptions, faults and adapter errors into a business explanation, a location, ranked root causes, suggested fixes and the tests that would have caught it.",
+    "generalizationPolicy": "Layer names are free-form strings, never an enum of {Commerce, CPI, S4}. A landscape with no middleware, or with MuleSoft in its place, is describable without lying."
+  },
+
+  "_comment_matching": "A pattern is recognised by weighted signatures. Confidence is the matched weight over the pattern's total weight, so a single generic hit scores low and several specific hits score high. Nothing is reported as a match below the floor; 'I do not recognise this' is a valid and useful answer.",
+  "confidenceFloor": 25,
+
+  "patterns": [
+    {
+      "id": "err-no-column",
+      "code": "NO_COLUMN",
+      "title": "Expected column not found",
+      "category": "DATA_MODEL",
+      "severity": "HIGH",
+      "businessExplanation": "An import file no longer contains a column the import expects, so those records cannot be loaded. The data is not wrong — the two sides disagree about the file's shape.",
+      "technicalExplanation": "The import mapping references a header or column that is absent from the incoming file, or the delimiter was misdetected so the header row did not split as expected.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)no column (found|named)", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)unknown column", "weight": 40 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)column .* (does not exist|not found)", "weight": 40 },
+        { "kind": "EXCEPTION_CLASS", "value": "ColumnNotFoundException", "weight": 30 }
+      ],
+      "layers": [
+        { "layer": "Import job", "whatHappensHere": "Rows are parsed and mapped onto attributes.", "typicalSymptom": "Every row rejected, or one attribute silently empty on all rows.", "whereToLook": ["Cron job log", "Rejected-row report", "The import mapping header line"] },
+        { "layer": "File producer", "whatHappensHere": "The upstream system writes the file.", "typicalSymptom": "The file's header row changed between runs without notice.", "whereToLook": ["Compare today's header row against yesterday's"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The producing system removed or renamed a column.", "likelihood": "HIGH", "howToConfirm": "Diff the header row of the current file against the last known-good file in the Payload Explorer.", "layer": "File producer" },
+        { "id": "rc2", "cause": "The delimiter changed, or a value contains an unescaped delimiter, so the header split incorrectly.", "likelihood": "MEDIUM", "howToConfirm": "Open the raw file and check the delimiter and quoting of the header row and the first data row." },
+        { "id": "rc3", "cause": "The import mapping was updated to expect a column the feed does not yet send.", "likelihood": "MEDIUM", "howToConfirm": "Check whether the mapping changed in the release currently deployed." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Realign the import mapping with the feed's actual header", "detail": "Update the mapping to the column names the producer now sends, or ask the producer to restore the removed column. Do not silently default the value — that turns a loud failure into wrong data.", "appliesTo": "Import mapping", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Make the column optional if it is genuinely no longer required", "detail": "Only if the business confirms the attribute is obsolete. Removing the requirement is a data-model decision, not an integration fix.", "appliesTo": "Import mapping", "effort": "SMALL", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": [
+        "Import a file with the current production header and assert the row count applied.",
+        "Import a file missing the column and assert it is rejected with a clear per-row reason rather than failing the whole job.",
+        "Import a file where a value contains the delimiter, and assert quoting is honoured."
+      ],
+      "relatedPatternIds": ["err-unknown-property", "err-file-missing"],
+      "documentationLinks": [{ "label": "Import mapping reference", "kind": "INTERNAL" }],
+      "tags": ["import", "csv", "batch", "data-model"]
+    },
+    {
+      "id": "err-unknown-property",
+      "code": "UNKNOWN_PROPERTY",
+      "title": "Unknown attribute or property",
+      "category": "DATA_MODEL",
+      "severity": "HIGH",
+      "businessExplanation": "A field arrived that the receiving system does not recognise, so the record was rejected or the field was ignored.",
+      "technicalExplanation": "A payload or import row names an attribute that does not exist on the target type. Usually a type-system change on one side that has not been released on the other.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)unknown propert(y|ies)", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)unrecognized field", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)no such attribute", "weight": 40 },
+        { "kind": "EXCEPTION_CLASS", "value": "UnrecognizedPropertyException", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Deserialisation", "whatHappensHere": "The payload is bound to a typed object.", "typicalSymptom": "The whole message is rejected before any business logic runs.", "whereToLook": ["Application log", "The payload in the Payload Explorer"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The sender added a field the receiver's release does not know about.", "likelihood": "HIGH", "howToConfirm": "Compare the payload against the receiver's current schema in the Payload Explorer's schema comparison." },
+        { "id": "rc2", "cause": "A type-system change shipped on one side only.", "likelihood": "MEDIUM", "howToConfirm": "Check whether the items definition changed in a release deployed to one environment and not the other." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Make the receiver tolerant of unknown fields", "detail": "Configure the deserialiser to ignore unknown properties. This is the standard fix for forward compatibility and lets the sender ship first without breaking the receiver.", "appliesTo": "Receiving service", "effort": "TRIVIAL", "risk": "LOW" },
+        { "id": "f2", "summary": "Release the receiving type-system change", "detail": "If the field is genuinely required, deploy the model change to the receiver before the sender starts emitting it.", "appliesTo": "Type system", "effort": "MEDIUM", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": [
+        "Send a payload containing an unexpected extra field and assert it is accepted and ignored.",
+        "Send a payload missing an optional field and assert the default applies."
+      ],
+      "relatedPatternIds": ["err-no-column", "err-schema-validation"],
+      "documentationLinks": [],
+      "tags": ["deserialisation", "contract", "compatibility"]
+    },
+    {
+      "id": "err-auth-failed",
+      "code": "AUTH_FAILED",
+      "title": "Authentication or authorisation failed",
+      "category": "AUTHENTICATION",
+      "severity": "CRITICAL",
+      "businessExplanation": "The integration could not prove who it was, so the receiving system refused it. No business data was processed.",
+      "technicalExplanation": "Credentials, a token or a certificate were rejected. Commonly an expired secret, a wrong environment's credentials, or a clock skew invalidating a signed assertion.",
+      "signatures": [
+        { "kind": "HTTP_STATUS", "value": "401", "weight": 45 },
+        { "kind": "HTTP_STATUS", "value": "403", "weight": 35 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(authentication|authorization) (failed|error|denied)", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)invalid_client|invalid_grant|unauthorized", "weight": 40 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(token|certificate) (expired|invalid)", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Transport", "whatHappensHere": "Credentials are attached and the call is made.", "typicalSymptom": "Every call fails identically and immediately, regardless of payload.", "whereToLook": ["Outbound log", "Credential or destination configuration"] },
+        { "layer": "Target system", "whatHappensHere": "The token is validated.", "typicalSymptom": "A 401 with no business message.", "whereToLook": ["Target security log"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The secret or certificate expired.", "likelihood": "HIGH", "howToConfirm": "Check the credential's expiry date. A failure that starts at a round time with no deployment is almost always this.", "layer": "Transport" },
+        { "id": "rc2", "cause": "Credentials for the wrong environment were deployed.", "likelihood": "MEDIUM", "howToConfirm": "Compare the configured client id against the target environment's expected value — check Configuration Drift for this release." },
+        { "id": "rc3", "cause": "Clock skew invalidated a signed assertion.", "likelihood": "LOW", "howToConfirm": "Compare system time on both sides; assertions typically allow only a few minutes of drift." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Rotate and redeploy the credential", "detail": "Issue a new secret or certificate and deploy it to the affected environment. Add an expiry alert so the next rotation is scheduled rather than discovered.", "appliesTo": "Configuration", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Correct the environment-specific configuration", "detail": "Point the environment at its own credentials. Configuration drift between environments is the usual cause of a change that works in one place and not another.", "appliesTo": "Configuration", "effort": "SMALL", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": [
+        "Smoke-test one authenticated call per interface immediately after deployment.",
+        "Assert that an expired token produces a clear, alertable error rather than a generic failure."
+      ],
+      "relatedPatternIds": ["err-timeout"],
+      "documentationLinks": [],
+      "tags": ["auth", "oauth", "certificate", "configuration"]
+    },
+    {
+      "id": "err-timeout",
+      "code": "TIMEOUT",
+      "title": "Call timed out",
+      "category": "TIMEOUT",
+      "severity": "HIGH",
+      "businessExplanation": "The other system did not answer in time. The request may still have been processed there, so retrying blindly can create duplicates.",
+      "technicalExplanation": "A read or connect timeout elapsed. On a synchronous, customer-facing path this is felt directly as a slow or failed page.",
+      "signatures": [
+        { "kind": "EXCEPTION_CLASS", "value": "SocketTimeoutException", "weight": 50 },
+        { "kind": "EXCEPTION_CLASS", "value": "TimeoutException", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(read|connect|request) time(d)? ?out", "weight": 45 },
+        { "kind": "HTTP_STATUS", "value": "504", "weight": 40 },
+        { "kind": "HTTP_STATUS", "value": "408", "weight": 35 }
+      ],
+      "layers": [
+        { "layer": "Transport", "whatHappensHere": "The caller waits for a response.", "typicalSymptom": "Intermittent failures that correlate with load rather than with payload.", "whereToLook": ["Caller log", "Response-time metrics"] },
+        { "layer": "Target system", "whatHappensHere": "The request is processed.", "typicalSymptom": "The document exists in the target despite the caller reporting failure.", "whereToLook": ["Target application log, searched by correlation ID"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The target is slower than the caller's timeout budget under current load.", "likelihood": "HIGH", "howToConfirm": "Compare the p95 response time against the configured timeout." },
+        { "id": "rc2", "cause": "A request is unusually large — a wide date range or an unbounded query.", "likelihood": "MEDIUM", "howToConfirm": "Check whether failures correlate with specific large requests rather than with time of day." },
+        { "id": "rc3", "cause": "The timeout is set far tighter than the operation realistically needs.", "likelihood": "MEDIUM", "howToConfirm": "Compare the configured timeout against the operation's historical p99." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Make retries idempotent before increasing them", "detail": "Send a stable idempotency key so a retry after a timeout cannot create a second document. Increasing retries without this multiplies duplicates.", "appliesTo": "Caller", "effort": "MEDIUM", "risk": "MEDIUM" },
+        { "id": "f2", "summary": "Degrade rather than fail on a customer-facing path", "detail": "For synchronous calls on the storefront path, fall back to a cached or previously-known value instead of showing an error.", "appliesTo": "Caller", "effort": "MEDIUM", "risk": "MEDIUM" },
+        { "id": "f3", "summary": "Bound the request", "detail": "Add paging or a date window so a single call cannot grow without limit.", "appliesTo": "Caller", "effort": "MEDIUM", "risk": "LOW" }
+      ],
+      "recommendedTests": [
+        "Simulate a slow target and assert the caller degrades rather than erroring.",
+        "Assert a retry after a timeout does not create a duplicate document.",
+        "Load-test the synchronous path at peak concurrency."
+      ],
+      "relatedPatternIds": ["err-queue-backlog"],
+      "documentationLinks": [],
+      "tags": ["timeout", "latency", "resilience"]
+    },
+    {
+      "id": "err-mapping-failed",
+      "code": "MAPPING_FAILED",
+      "title": "Field mapping failed",
+      "category": "MAPPING",
+      "severity": "HIGH",
+      "businessExplanation": "A value could not be translated between the two systems, so the record was rejected or arrived incomplete.",
+      "technicalExplanation": "A mapping step could not resolve a source field, or produced a value the target rejects. Unmapped source fields are dropped silently, which is why an incomplete document often has no error at all.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)mapping (failed|error|exception)", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)cannot map|could not map|unmapped", "weight": 40 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)xpath .* (not found|did not match)", "weight": 35 }
+      ],
+      "layers": [
+        { "layer": "Transformation", "whatHappensHere": "Source structure is converted to target structure.", "typicalSymptom": "A field is empty at the target while clearly populated at source.", "whereToLook": ["Message monitor", "Mapping Explorer for MISSING and RENAMED links"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The source field was renamed and the mapping still references the old name.", "likelihood": "HIGH", "howToConfirm": "Open the Mapping Explorer for this interface and look for RENAMED or MISSING links." },
+        { "id": "rc2", "cause": "A new field was added at source with no corresponding mapping, so it is dropped.", "likelihood": "HIGH", "howToConfirm": "Look for UNMAPPED_SOURCE links on the interface's mapping set." },
+        { "id": "rc3", "cause": "A value is longer than the target field permits and was truncated or rejected.", "likelihood": "MEDIUM", "howToConfirm": "Compare field lengths in the mapping set; look for TYPE_CHANGED links." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Add the missing mapping", "detail": "Map the source field to its target. Confirm it is genuinely required first — an unmapped field that nobody consumes should be removed from the payload rather than mapped.", "appliesTo": "Mapping", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Fail loudly on a dropped required field", "detail": "Add a validation step so a required field that maps to nothing raises an error instead of producing a quietly incomplete document.", "appliesTo": "Mapping", "effort": "MEDIUM", "risk": "LOW" }
+      ],
+      "recommendedTests": [
+        "Round-trip a fully-populated document and assert every required target field is present and non-empty.",
+        "Assert a value at the target field's maximum length is not truncated.",
+        "Assert a missing required field is rejected rather than silently dropped."
+      ],
+      "relatedPatternIds": ["err-xsd-validation", "err-edmx-mismatch"],
+      "documentationLinks": [],
+      "tags": ["mapping", "transformation", "silent-failure"]
+    },
+    {
+      "id": "err-material-missing",
+      "code": "MATERIAL_MISSING",
+      "title": "Material not found or not maintained",
+      "category": "TARGET_SYSTEM",
+      "severity": "HIGH",
+      "businessExplanation": "The product on the order does not exist in the receiving system, or is not set up for the location it is being ordered from. The order cannot be created until the master data is corrected.",
+      "technicalExplanation": "The target rejected the document because the material does not exist, or exists but is not extended to the requested plant or sales area.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)material .* (not found|does not exist|not maintained)", "weight": 55 },
+        { "kind": "ERROR_CODE", "value": "MATERIAL_NOT_FOUND", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)unknown material", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "The document is validated against master data.", "typicalSymptom": "One order line fails while the rest of the order is fine.", "whereToLook": ["Target application log", "Material master in the target"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The product is sellable in commerce but was never created in the target.", "likelihood": "HIGH", "howToConfirm": "Look the material up directly in the target system.", "layer": "Target system" },
+        { "id": "rc2", "cause": "The material exists but is not extended to the plant or sales area on the order.", "likelihood": "HIGH", "howToConfirm": "Check the material's plant and sales-area assignments." },
+        { "id": "rc3", "cause": "Commerce sends its own product code where the target expects the material number.", "likelihood": "MEDIUM", "howToConfirm": "Compare the value sent against the target's key format in the Mapping Explorer." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Correct the master data in the target", "detail": "Create or extend the material. This is a data fix, not a code fix — changing the integration would only hide the problem.", "appliesTo": "Target master data", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Block unsellable products at the point of sale", "detail": "Do not let a product be ordered in commerce if it cannot be fulfilled. Failing at checkout is far better than failing after the customer has paid.", "appliesTo": "Commerce", "effort": "MEDIUM", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": [
+        "Order a product that is not extended to the plant and assert a clear, actionable failure.",
+        "Assert the customer-facing message does not leak target-system terminology."
+      ],
+      "relatedPatternIds": ["err-plant-missing", "err-partner-missing"],
+      "documentationLinks": [],
+      "tags": ["master-data", "order", "erp"]
+    },
+    {
+      "id": "err-partner-missing",
+      "code": "PARTNER_MISSING",
+      "title": "Customer or partner not found",
+      "category": "TARGET_SYSTEM",
+      "severity": "HIGH",
+      "businessExplanation": "The customer placing the order does not exist in the receiving system, so the order cannot be created against an account.",
+      "technicalExplanation": "The sold-to, ship-to or bill-to party on the document could not be resolved in the target's business partner master.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(partner|customer|sold.?to|ship.?to) .* not (found|determined|maintained)", "weight": 55 },
+        { "kind": "ERROR_CODE", "value": "PARTNER_NOT_FOUND", "weight": 50 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "Partner determination runs before the document is created.", "typicalSymptom": "Every order for one account fails while other accounts succeed.", "whereToLook": ["Target application log", "Business partner master"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The account was created in commerce but never synchronised to the target.", "likelihood": "HIGH", "howToConfirm": "Check the customer sync interface for failures around the account's creation date." },
+        { "id": "rc2", "cause": "The partner exists but is not assigned to the sales area on the order.", "likelihood": "MEDIUM", "howToConfirm": "Check the partner's sales-area assignments." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Replay the customer synchronisation for the account", "detail": "Re-send the account so the target has it, then retry the order.", "appliesTo": "Customer sync", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Gate checkout on a synchronised account", "detail": "Do not allow ordering until the account is confirmed present in the target.", "appliesTo": "Commerce", "effort": "MEDIUM", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": [
+        "Create an account and assert it reaches the target before an order can be placed.",
+        "Order as an unsynchronised account and assert a clear failure."
+      ],
+      "relatedPatternIds": ["err-material-missing"],
+      "documentationLinks": [],
+      "tags": ["master-data", "customer", "order"]
+    },
+    {
+      "id": "err-plant-missing",
+      "code": "PLANT_MISSING",
+      "title": "Plant or sales area not determined",
+      "category": "TARGET_SYSTEM",
+      "severity": "HIGH",
+      "businessExplanation": "The receiving system could not work out which location should fulfil the order.",
+      "technicalExplanation": "Plant or sales-area determination failed, usually because the combination of customer, material and channel has no configured rule.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)plant .* not (found|determined|maintained)", "weight": 55 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)sales (area|organization) .* not (found|determined)", "weight": 50 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "Determination rules resolve the fulfilling location.", "typicalSymptom": "Orders fail only for certain product and customer combinations.", "whereToLook": ["Target configuration", "Target application log"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "No determination rule covers this combination.", "likelihood": "HIGH", "howToConfirm": "Reproduce the same document manually in the target — if it also fails there, the integration is not the cause." },
+        { "id": "rc2", "cause": "Commerce is not sending the plant it should.", "likelihood": "MEDIUM", "howToConfirm": "Check whether the plant field is mapped at all in the Mapping Explorer." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Add the missing determination rule", "detail": "Configure the target for this combination.", "appliesTo": "Target configuration", "effort": "MEDIUM", "risk": "MEDIUM" },
+        { "id": "f2", "summary": "Send the plant explicitly", "detail": "If commerce knows the fulfilling location, map it rather than relying on determination.", "appliesTo": "Mapping", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Order each product and customer combination that reaches production and assert determination succeeds."],
+      "relatedPatternIds": ["err-material-missing"],
+      "documentationLinks": [],
+      "tags": ["master-data", "configuration", "order"]
+    },
+    {
+      "id": "err-catalogversion-missing",
+      "code": "CATALOG_VERSION_MISSING",
+      "title": "Catalogue version not resolved",
+      "category": "CONFIGURATION",
+      "severity": "HIGH",
+      "businessExplanation": "The import could not tell which catalogue the data belongs to, so nothing was loaded.",
+      "technicalExplanation": "The catalogue and version referenced by the import do not exist in this environment, or were not supplied at all.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)catalog ?version", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)no catalog(ue)? (found|version)", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Import job", "whatHappensHere": "The target catalogue is resolved before rows are applied.", "typicalSymptom": "The whole import fails immediately with no rows applied.", "whereToLook": ["Cron job log", "Catalogue configuration for this environment"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The environment does not have the catalogue or version the import references.", "likelihood": "HIGH", "howToConfirm": "Check the catalogue configuration in this environment against the import script." },
+        { "id": "rc2", "cause": "The import script hard-codes a value that differs per environment.", "likelihood": "MEDIUM", "howToConfirm": "Look for an environment-specific value in the import script; check Configuration Drift for this release." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Parameterise the catalogue version", "detail": "Take the catalogue and version from environment configuration instead of hard-coding them in the import.", "appliesTo": "Import script", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Run the import in a non-production environment and assert it resolves the correct catalogue."],
+      "relatedPatternIds": ["err-no-column"],
+      "documentationLinks": [],
+      "tags": ["catalogue", "configuration", "import"]
+    },
+    {
+      "id": "err-xsd-validation",
+      "code": "XSD_VALIDATION_FAILED",
+      "title": "Payload failed schema validation",
+      "category": "VALIDATION",
+      "severity": "HIGH",
+      "businessExplanation": "The message did not match the agreed format, so the receiver refused it before reading any business data.",
+      "technicalExplanation": "Schema validation rejected the payload: a missing required element, an unexpected element, wrong ordering, or a value outside the declared type.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(xsd|schema) validation", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)cvc-[a-z-]+", "weight": 55 },
+        { "kind": "EXCEPTION_CLASS", "value": "SAXParseException", "weight": 40 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)is not a valid value for", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Validation", "whatHappensHere": "The payload is checked against its schema.", "typicalSymptom": "Rejection with an element path and a precise reason.", "whereToLook": ["Message monitor", "Payload Explorer validation panel"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The sender added or reordered an element the schema does not allow.", "likelihood": "HIGH", "howToConfirm": "Validate the payload against the schema in the Payload Explorer — the error names the exact element." },
+        { "id": "rc2", "cause": "The schema was tightened and payloads that used to pass no longer do.", "likelihood": "MEDIUM", "howToConfirm": "Diff the current schema against the previous version." },
+        { "id": "rc3", "cause": "A required element is empty rather than absent, or vice versa.", "likelihood": "MEDIUM", "howToConfirm": "Check the element's minOccurs and nillable settings against what is being sent." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Correct the payload to match the schema", "detail": "Fix the producing side. The schema is the contract; changing it to accept a malformed payload moves the problem downstream.", "appliesTo": "Producer", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Version the schema if the change is intentional", "detail": "If the new shape is correct, publish a new schema version and migrate consumers deliberately rather than loosening the current one.", "appliesTo": "Contract", "effort": "LARGE", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": [
+        "Validate a representative payload against the schema in CI so a contract break fails the build, not production.",
+        "Assert a payload missing each required element is rejected with a clear message."
+      ],
+      "relatedPatternIds": ["err-schema-validation", "err-mapping-failed"],
+      "documentationLinks": [],
+      "tags": ["schema", "validation", "contract"]
+    },
+    {
+      "id": "err-edmx-mismatch",
+      "code": "EDMX_MISMATCH",
+      "title": "Service metadata does not match the client",
+      "category": "VALIDATION",
+      "severity": "HIGH",
+      "businessExplanation": "The two systems disagree about what the service looks like, usually after one of them was upgraded.",
+      "technicalExplanation": "The client's cached service metadata differs from what the service now publishes — an entity, property or type has changed.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(edmx|metadata) (mismatch|invalid|could not be parsed)", "weight": 55 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)property .* not found in entity", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)entity ?type .* (not found|unknown)", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Client", "whatHappensHere": "The client builds requests from cached metadata.", "typicalSymptom": "Every call to one entity fails after a target upgrade; other entities are fine.", "whereToLook": ["Client metadata cache", "The service's published metadata document"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The service was upgraded and its metadata changed.", "likelihood": "HIGH", "howToConfirm": "Fetch the live metadata document and diff it against the client's copy in the Payload Explorer." },
+        { "id": "rc2", "cause": "The client cached metadata from a different environment.", "likelihood": "MEDIUM", "howToConfirm": "Compare the metadata's service version against the environment being called." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Regenerate the client metadata", "detail": "Refresh from the live service and redeploy. Treat metadata as a versioned artifact, not a one-time generation.", "appliesTo": "Client", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Detect metadata drift in CI", "detail": "Fetch the live metadata in a scheduled job and diff it against the committed copy, so an upstream upgrade is noticed before it breaks production.", "appliesTo": "Pipeline", "effort": "MEDIUM", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert the committed metadata matches the target environment's live metadata."],
+      "relatedPatternIds": ["err-xsd-validation"],
+      "documentationLinks": [],
+      "tags": ["odata", "metadata", "contract", "upgrade"]
+    },
+    {
+      "id": "err-null-pointer",
+      "code": "NULL_POINTER",
+      "title": "Null reference during processing",
+      "category": "PLATFORM",
+      "severity": "HIGH",
+      "businessExplanation": "The integration code assumed a value would be present and it was not, so processing stopped part-way.",
+      "technicalExplanation": "A null reference was dereferenced, most often in a populator or converter reading an optional attribute that is genuinely optional in the data.",
+      "signatures": [
+        { "kind": "EXCEPTION_CLASS", "value": "NullPointerException", "weight": 55 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)cannot invoke .* because .* is null", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Conversion", "whatHappensHere": "Populators read the domain model and write the DTO.", "typicalSymptom": "Fails for some records and not others, with no obvious pattern until you find the missing optional value.", "whereToLook": ["Application log stack trace — the top frame names the populator"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "An optional attribute is absent on some records and the code does not guard for it.", "likelihood": "HIGH", "howToConfirm": "Find the failing record and compare it against a succeeding one; the differing attribute is usually named in the stack trace." },
+        { "id": "rc2", "cause": "A dependency was not injected and the field is null at runtime.", "likelihood": "LOW", "howToConfirm": "Check the bean definition — a missing injection fails identically on every record, not intermittently." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Guard the optional attribute", "detail": "Handle absence explicitly. Decide with the business whether absent means skip, default, or reject — do not pick silently.", "appliesTo": "Populator or converter", "effort": "TRIVIAL", "risk": "LOW" }
+      ],
+      "recommendedTests": [
+        "Process a record with every optional attribute absent and assert it either succeeds or fails with a clear reason.",
+        "Add the failing record as a regression fixture."
+      ],
+      "relatedPatternIds": ["err-spring-bean"],
+      "documentationLinks": [],
+      "tags": ["platform", "converter", "populator"]
+    },
+    {
+      "id": "err-spring-bean",
+      "code": "SPRING_BEAN_FAILURE",
+      "title": "Bean wiring failed",
+      "category": "CONFIGURATION",
+      "severity": "CRITICAL",
+      "businessExplanation": "The application could not start or could not find a component it needed, so the affected function is entirely unavailable.",
+      "technicalExplanation": "A bean could not be created or resolved — a missing definition, an ambiguous candidate, or a circular dependency.",
+      "signatures": [
+        { "kind": "EXCEPTION_CLASS", "value": "NoSuchBeanDefinitionException", "weight": 55 },
+        { "kind": "EXCEPTION_CLASS", "value": "BeanCreationException", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)no qualifying bean", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)circular (reference|dependency)", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Application startup", "whatHappensHere": "The context is built and beans are wired.", "typicalSymptom": "Startup fails outright, or one feature is missing while the rest of the application runs.", "whereToLook": ["Startup log", "Spring configuration for the extension"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "A bean definition was removed or renamed but is still referenced.", "likelihood": "HIGH", "howToConfirm": "Search the Spring configuration for the bean id named in the error." },
+        { "id": "rc2", "cause": "Two candidates match one injection point.", "likelihood": "MEDIUM", "howToConfirm": "The error lists the candidates; one needs to be primary or qualified." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Restore or correct the bean definition", "detail": "Add the missing definition, or update the reference to the new id.", "appliesTo": "Spring configuration", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Disambiguate the injection point", "detail": "Mark one candidate primary or qualify the injection explicitly.", "appliesTo": "Spring configuration", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Start the application context in CI so a wiring break fails the build rather than the deployment."],
+      "relatedPatternIds": ["err-null-pointer"],
+      "documentationLinks": [],
+      "tags": ["spring", "configuration", "startup"]
+    },
+    {
+      "id": "err-unique-constraint",
+      "code": "UNIQUE_CONSTRAINT",
+      "title": "Duplicate key on write",
+      "category": "PERSISTENCE",
+      "severity": "HIGH",
+      "businessExplanation": "The system tried to create a record that already exists.",
+      "technicalExplanation": "A unique constraint was violated, usually because the same message was delivered twice or a natural key is not as unique as assumed.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)unique (constraint|index|violation)", "weight": 55 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)duplicate (key|entry)", "weight": 50 },
+        { "kind": "EXCEPTION_CLASS", "value": "DataIntegrityViolationException", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Persistence", "whatHappensHere": "The record is written.", "typicalSymptom": "A redelivered message fails where the first delivery succeeded.", "whereToLook": ["Application log", "Message redelivery history"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The same message was delivered more than once and the handler is not idempotent.", "likelihood": "HIGH", "howToConfirm": "Search the message log for the same correlation ID appearing twice." },
+        { "id": "rc2", "cause": "The chosen natural key is not unique in practice.", "likelihood": "MEDIUM", "howToConfirm": "Check whether the two records differ in fields outside the key." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Make the handler idempotent", "detail": "Upsert on the business key so a redelivery is a no-op. At-least-once delivery is the norm; handlers must expect duplicates.", "appliesTo": "Receiving service", "effort": "MEDIUM", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": ["Deliver the same message twice and assert exactly one record exists and no error is raised."],
+      "relatedPatternIds": ["err-persistence"],
+      "documentationLinks": [],
+      "tags": ["persistence", "idempotency", "duplicate"]
+    },
+    {
+      "id": "err-soap-fault",
+      "code": "SOAP_FAULT",
+      "title": "SOAP fault returned",
+      "category": "TRANSPORT",
+      "severity": "HIGH",
+      "businessExplanation": "The receiving system returned an error instead of processing the message.",
+      "technicalExplanation": "A SOAP fault was returned. The fault code separates a caller problem (Client) from a receiver problem (Server) — read it before assuming which side is at fault.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)soap:?fault|<faultcode>", "weight": 55 },
+        { "kind": "SOAP_FAULT_CODE", "value": "soap:Server", "weight": 35 },
+        { "kind": "SOAP_FAULT_CODE", "value": "soap:Client", "weight": 35 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)faultstring", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Transport", "whatHappensHere": "The response envelope is read.", "typicalSymptom": "A fault string carrying the receiver's real reason.", "whereToLook": ["Message monitor", "The fault detail element"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The receiver rejected the business content — the fault string names the reason.", "likelihood": "HIGH", "howToConfirm": "Read faultstring and the detail element; they usually name the exact field." },
+        { "id": "rc2", "cause": "A Client fault means the request was malformed.", "likelihood": "MEDIUM", "howToConfirm": "Validate the request against the schema before blaming the receiver." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Act on the fault detail rather than the envelope", "detail": "The detail element normally identifies the specific field or master-data record. Treat the fault as a pointer to the real error, not as the error itself.", "appliesTo": "Caller", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Surface the fault detail in monitoring", "detail": "Log the fault detail, not just the fault code — a dashboard of 'soap:Server' tells nobody anything.", "appliesTo": "Caller", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert a fault response is parsed and its detail is logged and surfaced."],
+      "relatedPatternIds": ["err-rest-error", "err-material-missing"],
+      "documentationLinks": [],
+      "tags": ["soap", "fault", "transport"]
+    },
+    {
+      "id": "err-rest-error",
+      "code": "REST_ERROR",
+      "title": "REST call returned an error status",
+      "category": "TRANSPORT",
+      "severity": "MEDIUM",
+      "businessExplanation": "The other system returned an error rather than a result.",
+      "technicalExplanation": "A non-2xx status was returned. A 4xx means the request was wrong; a 5xx means the receiver failed. Retrying a 4xx will never succeed.",
+      "signatures": [
+        { "kind": "HTTP_STATUS", "value": "400", "weight": 35 },
+        { "kind": "HTTP_STATUS", "value": "404", "weight": 30 },
+        { "kind": "HTTP_STATUS", "value": "422", "weight": 35 },
+        { "kind": "HTTP_STATUS", "value": "500", "weight": 40 },
+        { "kind": "HTTP_STATUS", "value": "502", "weight": 35 },
+        { "kind": "HTTP_STATUS", "value": "503", "weight": 35 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)http (status |error )?[45]\\d\\d", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Transport", "whatHappensHere": "The response status is evaluated.", "typicalSymptom": "The status alone is logged and the response body — which holds the reason — is discarded.", "whereToLook": ["Caller log", "The response body"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "4xx: the request is invalid. Retrying cannot help.", "likelihood": "HIGH", "howToConfirm": "Read the response body; it usually names the field." },
+        { "id": "rc2", "cause": "5xx: the receiver failed. A retry may succeed.", "likelihood": "MEDIUM", "howToConfirm": "Check the receiver's log for the same correlation ID." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Log the response body, not just the status", "detail": "A status code alone is rarely actionable. Capture the body so the reason survives into monitoring.", "appliesTo": "Caller", "effort": "TRIVIAL", "risk": "LOW" },
+        { "id": "f2", "summary": "Retry only on 5xx and timeouts", "detail": "Retrying a 4xx wastes capacity and delays the real fix.", "appliesTo": "Caller", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert a 4xx is not retried and a 5xx is, with backoff."],
+      "relatedPatternIds": ["err-soap-fault", "err-timeout", "err-auth-failed"],
+      "documentationLinks": [],
+      "tags": ["rest", "http", "transport"]
+    },
+    {
+      "id": "err-idoc-failure",
+      "code": "IDOC_FAILURE",
+      "title": "Document could not be produced or posted",
+      "category": "TARGET_SYSTEM",
+      "severity": "HIGH",
+      "businessExplanation": "The structured document the two systems exchange could not be created or processed, so the business record did not move.",
+      "technicalExplanation": "The document is in an error status. The status code identifies whether it failed on the sending side, in transit, or on posting.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)idoc .* (error|failed|status)", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)status 5[0-9] ", "weight": 30 },
+        { "kind": "ERROR_CODE", "value": "IDOC_ERROR", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "The document is created, transmitted and posted.", "typicalSymptom": "A document sitting in an error status with no downstream record.", "whereToLook": ["Document monitor in the target"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "Posting failed on master data or configuration.", "likelihood": "HIGH", "howToConfirm": "Read the document's status detail — it names the failing segment and field." },
+        { "id": "rc2", "cause": "A partner profile is missing for the sender or receiver.", "likelihood": "MEDIUM", "howToConfirm": "Check the partner profile configuration in the target." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Correct the cause and reprocess the document", "detail": "Documents in error can normally be reprocessed once the underlying data is fixed — no re-send from commerce is needed.", "appliesTo": "Target system", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert a document in error status raises an alert rather than sitting unnoticed."],
+      "relatedPatternIds": ["err-partner-missing", "err-material-missing"],
+      "documentationLinks": [],
+      "tags": ["idoc", "erp", "document"]
+    },
+    {
+      "id": "err-script-failure",
+      "code": "SCRIPT_FAILURE",
+      "title": "Transformation script raised an error",
+      "category": "MIDDLEWARE",
+      "severity": "HIGH",
+      "businessExplanation": "A custom step in the middle of the integration failed, so the message did not reach its destination.",
+      "technicalExplanation": "A script step threw. Scripts often assume a field is present and fail on the first message where it is not.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(groovy|script) .* (error|exception|failed)", "weight": 50 },
+        { "kind": "EXCEPTION_CLASS", "value": "GroovyRuntimeException", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)at Script\\d+\\.run", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Transformation", "whatHappensHere": "Custom logic runs against the message.", "typicalSymptom": "Most messages pass and one specific shape fails.", "whereToLook": ["Message monitor", "The script step's trace"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The script assumes a field that is optional in the data.", "likelihood": "HIGH", "howToConfirm": "Compare the failing message against a succeeding one." },
+        { "id": "rc2", "cause": "A script change was deployed without covering the existing message shapes.", "likelihood": "MEDIUM", "howToConfirm": "Check when the script last changed relative to the first failure." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Guard optional fields in the script", "detail": "Handle absence explicitly rather than assuming presence.", "appliesTo": "Script step", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Cover the script with message-shape tests", "detail": "Keep a fixture per real message shape so a script change is validated before deployment.", "appliesTo": "Pipeline", "effort": "MEDIUM", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Run the script against every known message shape, including minimal payloads."],
+      "relatedPatternIds": ["err-mapping-failed", "err-null-pointer"],
+      "documentationLinks": [],
+      "tags": ["middleware", "script", "transformation"]
+    },
+    {
+      "id": "err-serialization",
+      "code": "SERIALIZATION_FAILED",
+      "title": "Payload could not be serialised or parsed",
+      "category": "SERIALIZATION",
+      "severity": "HIGH",
+      "businessExplanation": "The message could not be turned into, or read from, its wire format.",
+      "technicalExplanation": "Serialisation or parsing failed — malformed content, an encoding mismatch, or a value that cannot be represented in the target format.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(serializ|deserializ|parse) .*(error|failed|exception)", "weight": 50 },
+        { "kind": "EXCEPTION_CLASS", "value": "JsonProcessingException", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)unexpected (character|token|end of)", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)malformed", "weight": 35 }
+      ],
+      "layers": [
+        { "layer": "Serialisation", "whatHappensHere": "Objects become bytes and back.", "typicalSymptom": "Failure at the very start of processing, before any business rule runs.", "whereToLook": ["Application log", "The raw payload in the Payload Explorer"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The payload is truncated or malformed.", "likelihood": "HIGH", "howToConfirm": "Open the raw payload and check it is complete and well-formed." },
+        { "id": "rc2", "cause": "Encoding mismatch — non-ASCII content read as the wrong charset.", "likelihood": "MEDIUM", "howToConfirm": "Look for replacement characters in the payload; check the declared charset on both sides." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Declare and honour the charset explicitly", "detail": "Set the charset on both sides rather than relying on defaults, which differ by platform.", "appliesTo": "Both sides", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Round-trip a payload containing non-ASCII characters and assert it is unchanged."],
+      "relatedPatternIds": ["err-schema-validation"],
+      "documentationLinks": [],
+      "tags": ["serialisation", "encoding"]
+    },
+    {
+      "id": "err-schema-validation",
+      "code": "SCHEMA_VALIDATION_FAILED",
+      "title": "Content failed validation",
+      "category": "VALIDATION",
+      "severity": "MEDIUM",
+      "businessExplanation": "The content did not satisfy a rule the receiver enforces.",
+      "technicalExplanation": "A validation rule rejected the content — a required value, a format, or a range.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)validation (failed|error)", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)constraint violation", "weight": 40 },
+        { "kind": "EXCEPTION_CLASS", "value": "ConstraintViolationException", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Validation", "whatHappensHere": "Content is checked before use.", "typicalSymptom": "A precise message naming the field and the rule.", "whereToLook": ["Application log"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The value genuinely violates the rule.", "likelihood": "HIGH", "howToConfirm": "Read the violation message; it names the field and the constraint." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Correct the value at source", "detail": "Fix the producing side rather than relaxing the rule.", "appliesTo": "Producer", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert each validation rule rejects a violating value with a message naming the field."],
+      "relatedPatternIds": ["err-xsd-validation"],
+      "documentationLinks": [],
+      "tags": ["validation"]
+    },
+    {
+      "id": "err-missing-mandatory",
+      "code": "MISSING_MANDATORY_FIELD",
+      "title": "Mandatory field missing",
+      "category": "VALIDATION",
+      "severity": "HIGH",
+      "businessExplanation": "A value the receiver requires was not supplied, so the record was refused.",
+      "technicalExplanation": "A required field was absent or empty at the point of validation.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(mandatory|required) .*(missing|not (supplied|provided|filled))", "weight": 55 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)field .* is required", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)must not be (null|empty|blank)", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Validation", "whatHappensHere": "Required fields are checked.", "typicalSymptom": "Fails consistently for one record type.", "whereToLook": ["Application log", "Mapping Explorer for MISSING links"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The field is not mapped, so it never arrives.", "likelihood": "HIGH", "howToConfirm": "Check the Mapping Explorer for a MISSING link on this field." },
+        { "id": "rc2", "cause": "The field is optional at source but mandatory at the target.", "likelihood": "MEDIUM", "howToConfirm": "Compare the two sides' requirements for the field." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Map the field, or default it deliberately", "detail": "Add the mapping. If a default is used instead, agree it with the business — a silently defaulted mandatory field produces confidently wrong data.", "appliesTo": "Mapping", "effort": "SMALL", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": ["Assert every field the target treats as mandatory is populated by a round-trip test."],
+      "relatedPatternIds": ["err-mapping-failed"],
+      "documentationLinks": [],
+      "tags": ["validation", "mapping"]
+    },
+    {
+      "id": "err-persistence",
+      "code": "PERSISTENCE_FAILURE",
+      "title": "Write to the database failed",
+      "category": "PERSISTENCE",
+      "severity": "HIGH",
+      "businessExplanation": "The change could not be saved, so the system does not reflect what was received.",
+      "technicalExplanation": "A database write failed — a constraint, a lock timeout, or a connection problem.",
+      "signatures": [
+        { "kind": "EXCEPTION_CLASS", "value": "SQLException", "weight": 45 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(deadlock|lock wait timeout)", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)could not (execute|commit) (statement|transaction)", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Persistence", "whatHappensHere": "The transaction commits.", "typicalSymptom": "Intermittent failures under concurrent load.", "whereToLook": ["Application log", "Database log"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "Concurrent writes to the same rows are deadlocking.", "likelihood": "MEDIUM", "howToConfirm": "Check whether failures correlate with concurrent batch runs." },
+        { "id": "rc2", "cause": "A long-running transaction is holding locks.", "likelihood": "MEDIUM", "howToConfirm": "Look for transactions spanning an entire import rather than a batch." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Commit in bounded batches", "detail": "Keep transactions short so locks are held briefly.", "appliesTo": "Import job", "effort": "MEDIUM", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": ["Run two concurrent imports over overlapping data and assert both complete."],
+      "relatedPatternIds": ["err-unique-constraint"],
+      "documentationLinks": [],
+      "tags": ["database", "persistence", "concurrency"]
+    },
+    {
+      "id": "err-file-missing",
+      "code": "FILE_MISSING",
+      "title": "Expected file never arrived",
+      "category": "TRANSPORT",
+      "severity": "HIGH",
+      "businessExplanation": "A scheduled data file did not turn up, so the data behind it is stale — often without any error being raised.",
+      "technicalExplanation": "The polled location contained no file matching the expected pattern within the expected window.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(file|no file).*(not found|missing|did not arrive)", "weight": 50 },
+        { "kind": "EXCEPTION_CLASS", "value": "FileNotFoundException", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Transfer", "whatHappensHere": "Files land on the shared location.", "typicalSymptom": "Silence. Nothing errors — the data simply stops updating.", "whereToLook": ["The drop location", "Transfer server log"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The producing job did not run.", "likelihood": "HIGH", "howToConfirm": "Check the producer's schedule and last run." },
+        { "id": "rc2", "cause": "The file was written to a different path or with a different name.", "likelihood": "MEDIUM", "howToConfirm": "List the drop location and compare against the expected pattern." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Alert on absence, not only on failure", "detail": "A file-based interface fails silently by default. Add a freshness check that alerts when no file has arrived within the expected window — this is the single highest-value monitor for batch integrations.", "appliesTo": "Monitoring", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert an alert fires when no file arrives within the expected window."],
+      "relatedPatternIds": ["err-no-column"],
+      "documentationLinks": [],
+      "tags": ["file", "batch", "monitoring", "silent-failure"]
+    },
+    {
+      "id": "err-queue-backlog",
+      "code": "QUEUE_BACKLOG",
+      "title": "Queue or consumer backlog growing",
+      "category": "MIDDLEWARE",
+      "severity": "MEDIUM",
+      "businessExplanation": "Messages are arriving faster than they are being processed, so data is increasingly out of date even though nothing has failed.",
+      "technicalExplanation": "Consumer lag or queue depth is rising. No errors are raised — the symptom is staleness, not failure.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(consumer lag|queue (depth|backlog))", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)messages? (pending|unprocessed)", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Queue", "whatHappensHere": "Messages wait for a consumer.", "typicalSymptom": "Everything looks healthy; the data is simply old.", "whereToLook": ["Broker metrics", "Consumer throughput"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "Consumer throughput is below the production rate.", "likelihood": "HIGH", "howToConfirm": "Compare messages produced against messages consumed per minute." },
+        { "id": "rc2", "cause": "A poison message is blocking the partition.", "likelihood": "MEDIUM", "howToConfirm": "Check whether lag is confined to one partition." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Alert on lag, not just on errors", "detail": "Set a threshold on consumer lag. A healthy-looking pipeline with rising lag is the failure mode nobody notices until the business does.", "appliesTo": "Monitoring", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Route poison messages to a dead-letter queue", "detail": "Stop one bad message blocking every message behind it.", "appliesTo": "Consumer", "effort": "MEDIUM", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert a poison message is dead-lettered and the consumer continues."],
+      "relatedPatternIds": ["err-timeout"],
+      "documentationLinks": [],
+      "tags": ["queue", "async", "monitoring", "silent-failure"]
+    },
+    {
+      "id": "err-pricing-failure",
+      "code": "PRICING_FAILURE",
+      "title": "Price could not be determined",
+      "category": "BUSINESS_RULE",
+      "severity": "HIGH",
+      "businessExplanation": "No valid price was found for a product and customer combination, so the item cannot be sold at a confirmed price.",
+      "technicalExplanation": "Price determination returned no applicable condition — typically a missing condition record, an expired validity, or a missing currency.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(price|pricing) .*(not (found|determined)|failed)", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)no condition record", "weight": 50 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "Condition records are evaluated.", "typicalSymptom": "Specific products or customers show no price while others are fine.", "whereToLook": ["Condition records", "Target application log"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "No condition record exists for this combination.", "likelihood": "HIGH", "howToConfirm": "Look the condition up directly in the target." },
+        { "id": "rc2", "cause": "The condition expired.", "likelihood": "MEDIUM", "howToConfirm": "Check the validity dates against today." },
+        { "id": "rc3", "cause": "The currency was not determined.", "likelihood": "LOW", "howToConfirm": "See the currency-missing pattern." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Maintain the condition record", "detail": "A data fix in the target.", "appliesTo": "Target master data", "effort": "SMALL", "risk": "LOW" },
+        { "id": "f2", "summary": "Never show an unpriced item as buyable", "detail": "Hide or block the item rather than showing a zero or blank price.", "appliesTo": "Commerce", "effort": "MEDIUM", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": ["Assert a product with no valid condition cannot be added to a cart at a wrong price."],
+      "relatedPatternIds": ["err-currency-missing", "err-timeout"],
+      "documentationLinks": [],
+      "tags": ["pricing", "master-data"]
+    },
+    {
+      "id": "err-currency-missing",
+      "code": "CURRENCY_MISSING",
+      "title": "Currency not determined",
+      "category": "CONFIGURATION",
+      "severity": "HIGH",
+      "businessExplanation": "The system could not tell which currency to price in, so no amount could be calculated.",
+      "technicalExplanation": "Currency determination failed — absent on the customer, the sales area, or the request.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)currency .*(not (found|determined|maintained)|missing)", "weight": 55 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "Currency is derived before pricing.", "typicalSymptom": "Pricing fails for one account or one sales area.", "whereToLook": ["Customer master", "Sales area configuration"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The customer has no currency assigned.", "likelihood": "HIGH", "howToConfirm": "Check the customer master." },
+        { "id": "rc2", "cause": "Commerce does not send the currency and the target cannot derive one.", "likelihood": "MEDIUM", "howToConfirm": "Check whether currency is mapped on this interface." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Maintain currency on the customer", "detail": "A data fix.", "appliesTo": "Target master data", "effort": "TRIVIAL", "risk": "LOW" },
+        { "id": "f2", "summary": "Send currency explicitly", "detail": "Map it rather than relying on derivation.", "appliesTo": "Mapping", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert pricing fails clearly, not silently at zero, when currency is absent."],
+      "relatedPatternIds": ["err-pricing-failure"],
+      "documentationLinks": [],
+      "tags": ["currency", "configuration", "pricing"]
+    },
+    {
+      "id": "err-invoice-failure",
+      "code": "INVOICE_FAILURE",
+      "title": "Invoice or document not available",
+      "category": "TARGET_SYSTEM",
+      "severity": "MEDIUM",
+      "businessExplanation": "The invoice or its document could not be retrieved, so the customer cannot see or download it.",
+      "technicalExplanation": "The billing document exists but the rendered document is not available, or the document is not yet released.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(invoice|billing document) .*(not (found|available)|failed)", "weight": 50 },
+        { "kind": "ERROR_CODE", "value": "DOC_NOT_FOUND", "weight": 45 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "The document is rendered and released.", "typicalSymptom": "The invoice header is listed but the download fails.", "whereToLook": ["Target document store"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The document has not been rendered yet.", "likelihood": "HIGH", "howToConfirm": "Check the billing document's output status in the target." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Only offer a download once the document exists", "detail": "Check availability before rendering the download control, so the customer never clicks a link that fails.", "appliesTo": "Commerce", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert an invoice without a rendered document does not present a broken download."],
+      "relatedPatternIds": [],
+      "documentationLinks": [],
+      "tags": ["invoice", "documents"]
+    },
+    {
+      "id": "err-integration-object",
+      "code": "INTEGRATION_OBJECT_FAILURE",
+      "title": "Integration object rejected the payload",
+      "category": "DATA_MODEL",
+      "severity": "HIGH",
+      "businessExplanation": "The inbound record did not match what the system is configured to accept, so it was not saved.",
+      "technicalExplanation": "The integration object's definition does not cover the payload — an unknown attribute, a missing key, or a type mismatch.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)integration object", "weight": 50 },
+        { "kind": "MESSAGE_REGEX", "value": "(?i)inbound .*(rejected|invalid)", "weight": 40 }
+      ],
+      "layers": [
+        { "layer": "Integration object", "whatHappensHere": "The payload is validated against the declared structure and written.", "typicalSymptom": "Rejection naming an attribute or a key.", "whereToLook": ["Application log", "Integration object definition"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "The payload contains an attribute the object does not declare.", "likelihood": "HIGH", "howToConfirm": "Compare the payload against the object definition." },
+        { "id": "rc2", "cause": "The key attributes do not uniquely identify the record.", "likelihood": "MEDIUM", "howToConfirm": "Check the object's key configuration." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Extend the integration object", "detail": "Declare the attribute so the payload is accepted.", "appliesTo": "Integration object", "effort": "SMALL", "risk": "MEDIUM" }
+      ],
+      "recommendedTests": ["Post a representative payload and assert every field is persisted, not just accepted."],
+      "relatedPatternIds": ["err-unknown-property"],
+      "documentationLinks": [],
+      "tags": ["integration-object", "inbound", "data-model"]
+    },
+    {
+      "id": "err-cmir-failure",
+      "code": "CMIR_FAILURE",
+      "title": "Customer material number not resolved",
+      "category": "TARGET_SYSTEM",
+      "severity": "MEDIUM",
+      "businessExplanation": "The customer's own part number could not be found, so they see the internal product code instead of theirs.",
+      "technicalExplanation": "No customer material info record exists for this customer and material combination.",
+      "signatures": [
+        { "kind": "MESSAGE_REGEX", "value": "(?i)(cmir|customer material) .*(not found|missing)", "weight": 55 }
+      ],
+      "layers": [
+        { "layer": "Target system", "whatHappensHere": "The customer-specific record is looked up.", "typicalSymptom": "Some products show the customer's number and others do not.", "whereToLook": ["Customer material info records in the target"] }
+      ],
+      "rootCauses": [
+        { "id": "rc1", "cause": "No record exists for this combination.", "likelihood": "HIGH", "howToConfirm": "Look it up in the target." }
+      ],
+      "suggestedFixes": [
+        { "id": "f1", "summary": "Fall back to the internal code cleanly", "detail": "Absence is normal and not an error — show the internal code rather than a blank or an error.", "appliesTo": "Commerce", "effort": "SMALL", "risk": "LOW" }
+      ],
+      "recommendedTests": ["Assert a product with no customer record still displays correctly."],
+      "relatedPatternIds": ["err-material-missing"],
+      "documentationLinks": [],
+      "tags": ["cmir", "master-data"]
+    }
+  ]
+}

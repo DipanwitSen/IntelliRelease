@@ -21,12 +21,15 @@ export function riskTone(level: RiskLevel | string | null | undefined): Tone {
     case 'LOW': return 'success';
     case 'MEDIUM': return 'warning';
     case 'HIGH': return 'danger';
+    // CRITICAL is not in the risk policy's scale, but severity vocabularies
+    // elsewhere (error patterns, stage errors) do use it, and it shares the
+    // same meaning here.
     case 'CRITICAL': return 'danger';
     default: return 'neutral';
   }
 }
 
-/** CRITICAL needs to outrank HIGH visually; the badge adds a border for it. */
+/** CRITICAL outranks HIGH visually; the badge adds a ring for it. */
 export function isCritical(level: RiskLevel | Severity | string | null | undefined): boolean {
   return level === 'CRITICAL';
 }
@@ -36,7 +39,6 @@ export function readinessTone(status: ReadinessStatus | string | null | undefine
     case 'READY': return 'success';
     case 'READY_WITH_WARNINGS': return 'warning';
     case 'NOT_READY': return 'danger';
-    case 'BLOCKED': return 'danger';
     default: return 'neutral';
   }
 }
@@ -93,6 +95,7 @@ export function releaseStatusTone(status: ReleaseStatus | string | null | undefi
   switch (status) {
     case 'RELEASED': return 'success';
     case 'APPROVED': return 'accent';
+    // Notes exist but nobody has approved them yet — the governance gate.
     case 'NOTES_GENERATED': return 'warning';
     case 'ANALYZED':
     case 'BUILT': return 'info';

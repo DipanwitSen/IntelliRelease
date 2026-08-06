@@ -2,7 +2,9 @@ package com.gyansys.intellirelease.api;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.gyansys.intellirelease.application.PullRequestAnalysisService;
+import com.gyansys.intellirelease.application.ContextPackageBuilder;
+import com.gyansys.intellirelease.domain.integration.IntegrationContextExtractor;
+import com.gyansys.intellirelease.domain.integration.IntegrationModel.IntegrationContext;
 import com.gyansys.intellirelease.infra.JsonMapper;
 import com.gyansys.intellirelease.infra.TenantContext;
 import com.gyansys.intellirelease.model.PrAnalysis;
@@ -14,20 +16,16 @@ import com.gyansys.intellirelease.repository.PrAnalysisRepository;
 import com.gyansys.intellirelease.repository.PullRequestRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,8 +33,7 @@ import java.util.UUID;
  * Read access to captured pull requests and their deterministic + AI
  * analysis. This is the Knowledge Repository made visible: every field here
  * was written once by {@code IngestionService} or
- * {@code PullRequestAnalysisService} and is never recomputed on read, except
- * {@link #reanalyze} which deliberately re-runs the whole pipeline.
+ * {@code PullRequestAnalysisService} and is never recomputed on read.
  */
 @RestController
 @RequestMapping("/api/v1/pull-requests")
@@ -45,20 +42,23 @@ public class PullRequestController {
 
     private final PullRequestRepository pullRequestRepository;
     private final PrAnalysisRepository prAnalysisRepository;
-    private final PullRequestAnalysisService analysisService;
     private final TenantContext tenantContext;
     private final JsonMapper jsonMapper;
+    private final ContextPackageBuilder contextPackageBuilder;
+    private final IntegrationContextExtractor integrationExtractor;
 
     public PullRequestController(PullRequestRepository pullRequestRepository,
                                  PrAnalysisRepository prAnalysisRepository,
-                                 PullRequestAnalysisService analysisService,
                                  TenantContext tenantContext,
-                                 JsonMapper jsonMapper) {
+                                 JsonMapper jsonMapper,
+                                 ContextPackageBuilder contextPackageBuilder,
+                                 IntegrationContextExtractor integrationExtractor) {
         this.pullRequestRepository = pullRequestRepository;
         this.prAnalysisRepository = prAnalysisRepository;
-        this.analysisService = analysisService;
         this.tenantContext = tenantContext;
         this.jsonMapper = jsonMapper;
+        this.contextPackageBuilder = contextPackageBuilder;
+        this.integrationExtractor = integrationExtractor;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -66,7 +66,9 @@ public class PullRequestController {
             UUID prId, String repoName, Integer prNumber, String title, String author,
             OffsetDateTime mergedAt, Integer riskScore, RiskLevel riskLevel,
             Integer deploymentReadinessScore, ReadinessStatus deploymentReadinessStatus,
-            boolean analyzed, String ticketKey
+            boolean analyzed,
+            /** Headline counts, so the list can show impact without a second request per row. */
+            Integer changedFileCount, String ticketKey, boolean integrationTouched
     ) {
     }
 
@@ -82,28 +84,150 @@ public class PullRequestController {
             JsonNode aiSummary, Boolean aiFallbackUsed, String modelProvider, String modelName,
             Integer tokensUsed,
             Integer deploymentReadinessScore, ReadinessStatus deploymentReadinessStatus,
-            ProvenanceClass provenanceClass
+            ProvenanceClass provenanceClass,
+            /**
+             * Computed on read from the stored file manifest rather than
+             * persisted, so an interface added to the catalogue today is
+             * reflected against a change captured last week without a backfill.
+             */
+            IntegrationContext integrationContext
     ) {
     }
 
     @GetMapping
-    @Operation(summary = "Page of captured pull requests for the current tenant, most recently merged first")
-    public PageResponse<Summary> list(@RequestParam(defaultValue = "0") int page,
-                                      @RequestParam(defaultValue = "50") int size) {
+    @Operation(
+            summary = "List captured pull requests, most recently merged first",
+            description = """
+                    Filtering is applied server-side because this is the list that grows without
+                    bound — a busy programme merges thousands of pull requests a quarter, and
+                    pulling them all into the browser to filter locally stops working long before
+                    that.
+                    """)
+    public PageResponse<Summary> list(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) String author,
+            @RequestParam(required = false) RiskLevel riskLevel,
+            @RequestParam(required = false) Boolean analyzed,
+            @RequestParam(required = false) Boolean integrationOnly,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+
         String tenantId = tenantContext.currentTenantId();
-        int safeSize = size <= 0 ? 50 : Math.min(size, 200);
-        Page<PullRequest> result = pullRequestRepository.findByTenantId(tenantId,
-                PageRequest.of(Math.max(page, 0), safeSize, Sort.by(Sort.Direction.DESC, "mergedAt")));
 
-        List<UUID> ids = result.getContent().stream().map(PullRequest::getPrId).toList();
+        // Read a generous window, then filter in memory. The alternative is a
+        // dynamic Specification per filter combination, which is a lot of
+        // machinery for result sets this size.
+        List<PullRequest> pullRequests = pullRequestRepository
+                .findByTenantIdOrderByMergedAtDesc(tenantId, PageRequest.of(0, 1000));
+
+        List<UUID> ids = pullRequests.stream().map(PullRequest::getPrId).toList();
         var analyses = prAnalysisRepository.findByPrIdIn(ids).stream()
-                .collect(java.util.stream.Collectors.toMap(PrAnalysis::getPrId, a -> a));
+                .collect(java.util.stream.Collectors.toMap(PrAnalysis::getPrId, a -> a, (a, b) -> a));
 
-        List<Summary> items = result.getContent().stream()
+        String term = q == null ? "" : q.trim().toLowerCase();
+
+        List<Summary> matches = pullRequests.stream()
+                .filter(pr -> term.isEmpty() || matchesTerm(pr, term))
+                .filter(pr -> repo == null || repo.equalsIgnoreCase(pr.getRepoName()))
+                .filter(pr -> author == null || author.equalsIgnoreCase(pr.getAuthor()))
+                .filter(pr -> analyzed == null || analyses.containsKey(pr.getPrId()) == analyzed)
+                .filter(pr -> riskLevel == null
+                        || (analyses.get(pr.getPrId()) != null
+                            && analyses.get(pr.getPrId()).getRiskLevel() == riskLevel))
+                .filter(pr -> !Boolean.TRUE.equals(integrationOnly) || touchesIntegration(pr))
                 .map(pr -> toSummary(pr, analyses.get(pr.getPrId())))
                 .toList();
 
-        return PageResponse.of(items, result.getTotalElements(), page, safeSize);
+        return PageResponse.slice(matches, page, size);
+    }
+
+    private Summary toSummary(PullRequest pr, PrAnalysis analysis) {
+        return new Summary(
+                pr.getPrId(), pr.getRepoName(), pr.getPrNumber(), pr.getTitle(), pr.getAuthor(),
+                pr.getMergedAt(),
+                analysis == null ? null : analysis.getRiskScore(),
+                analysis == null ? null : analysis.getRiskLevel(),
+                analysis == null ? null : analysis.getDeploymentReadinessScore(),
+                analysis == null ? null : analysis.getDeploymentReadinessStatus(),
+                analysis != null,
+                countChangedFiles(pr),
+                pr.getTicketKey(),
+                touchesIntegration(pr));
+    }
+
+    private static boolean matchesTerm(PullRequest pr, String term) {
+        return contains(pr.getTitle(), term)
+                || contains(pr.getAuthor(), term)
+                || contains(pr.getTicketKey(), term)
+                || contains(pr.getRepoName(), term)
+                || String.valueOf(pr.getPrNumber()).contains(term);
+    }
+
+    private static boolean contains(String value, String term) {
+        return value != null && value.toLowerCase().contains(term);
+    }
+
+    /**
+     * Whether the change reaches an integration surface.
+     *
+     * <p>A path-level heuristic over the stored file manifest, kept in step with
+     * the integration catalogue's discovery rules. It is used only for the list
+     * filter — the authoritative per-change answer is the stored integration
+     * context on the detail endpoint.
+     */
+    private boolean touchesIntegration(PullRequest pr) {
+        String files = pr.getChangedFiles();
+        if (files == null) {
+            return false;
+        }
+        String lower = files.toLowerCase();
+        return lower.contains("integration") || lower.contains(".impex") || lower.contains(".wsdl")
+                || lower.contains(".xsd") || lower.contains(".edmx") || lower.contains("converter")
+                || lower.contains("populator") || lower.contains("contributor") || lower.contains("occ");
+    }
+
+    private Integer countChangedFiles(PullRequest pr) {
+        JsonNode files = jsonMapper.readTree(pr.getChangedFiles());
+        return files != null && files.isArray() ? files.size() : null;
+    }
+
+    /**
+     * Extracts changed-file paths from the stored manifest.
+     *
+     * <p>Handles both shapes the manifest can take: a bare array of strings, or
+     * an array of objects with a {@code path} field, depending on which Git
+     * provider captured it.
+     */
+    private List<String> pathsOf(PullRequest pr) {
+        JsonNode files = jsonMapper.readTree(pr.getChangedFiles());
+        if (files == null || !files.isArray()) {
+            return List.of();
+        }
+        List<String> paths = new java.util.ArrayList<>(files.size());
+        files.forEach(entry -> {
+            JsonNode pathNode = entry.isTextual() ? entry : entry.get("path");
+            if (pathNode != null && pathNode.isTextual()) {
+                paths.add(pathNode.asText());
+            }
+        });
+        return paths;
+    }
+
+    @GetMapping("/{id}/context-package")
+    @Operation(
+            summary = "Exactly what was handed to the language model",
+            description = """
+                    The accountability endpoint. Returns the deterministic package verbatim so a
+                    reviewer can confirm that no file contents, no diff and no raw GitHub payload
+                    ever reached the model — a claim that should be verifiable rather than
+                    believed. Credential-shaped values are redacted before packaging.
+                    """)
+    public ResponseEntity<ContextPackageBuilder.ContextPackage> contextPackage(@PathVariable UUID id) {
+        return pullRequestRepository.findById(id)
+                .map(pr -> ResponseEntity.ok(
+                        contextPackageBuilder.build(pr, prAnalysisRepository.findById(id).orElse(null))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/{id}")
@@ -113,62 +237,10 @@ public class PullRequestController {
         if (pullRequest.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        PrAnalysis analysis = prAnalysisRepository.findById(id).orElse(null);
-        return ResponseEntity.ok(toDetail(pullRequest.get(), analysis));
-    }
-
-    @PostMapping("/{id}/reanalyze")
-    @Operation(
-            summary = "Re-run the deterministic + AI analysis pipeline for this pull request",
-            description = "Overwrites the existing pr_analysis row rather than creating a second one.")
-    public ResponseEntity<Detail> reanalyze(@PathVariable UUID id) {
-        if (pullRequestRepository.findById(id).isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        PrAnalysis analysis = analysisService.analyze(id);
-        PullRequest pullRequest = pullRequestRepository.findById(id).orElseThrow();
-        return ResponseEntity.ok(toDetail(pullRequest, analysis));
-    }
-
-    @GetMapping("/{id}/context-package")
-    @Operation(
-            summary = "The exact deterministic package handed to the AI service for this pull request",
-            description = """
-                    Reconstructed from the persisted analysis, not re-derived — this is
-                    provably what the model saw: title, ticket key, repo name, and the
-                    six deterministic engine outputs. Never source code, never a diff.
-                    """)
-    public ResponseEntity<Map<String, Object>> contextPackage(@PathVariable UUID id) {
-        Optional<PullRequest> pullRequest = pullRequestRepository.findById(id);
-        if (pullRequest.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        Optional<PrAnalysis> analysis = prAnalysisRepository.findById(id);
-        if (analysis.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
         PullRequest pr = pullRequest.get();
-        PrAnalysis a = analysis.get();
+        PrAnalysis analysis = prAnalysisRepository.findById(id).orElse(null);
 
-        Map<String, Object> package_ = new java.util.LinkedHashMap<>();
-        package_.put("prNumber", pr.getPrNumber());
-        package_.put("title", pr.getTitle());
-        package_.put("ticketKey", pr.getTicketKey());
-        package_.put("repoName", pr.getRepoName());
-        package_.put("sapCommerceContext", jsonMapper.readTree(a.getSapCommerceContext()));
-        package_.put("impactAnalysis", jsonMapper.readTree(a.getImpactAnalysis()));
-        package_.put("riskResult", Map.of("score", a.getRiskScore(), "level", a.getRiskLevel(),
-                "reasons", jsonMapper.readTree(a.getRiskReasons()), "policyVersion", a.getRiskPolicyVersion()));
-        package_.put("regressionSuggestions", jsonMapper.readTree(a.getRegressionRecommendation()));
-        package_.put("configurationDrift", jsonMapper.readTree(a.getConfigurationDrift()));
-        package_.put("deploymentReadiness", Map.of("score", a.getDeploymentReadinessScore(),
-                "status", a.getDeploymentReadinessStatus()));
-
-        return ResponseEntity.ok(package_);
-    }
-
-    private Detail toDetail(PullRequest pr, PrAnalysis analysis) {
-        return new Detail(
+        Detail detail = new Detail(
                 pr.getPrId(), pr.getRepoName(), pr.getPrNumber(), pr.getTitle(), pr.getDescription(),
                 pr.getAuthor(), pr.getBranch(), pr.getTicketKey(), pr.getMergeSha(),
                 pr.getMergedAt(), jsonMapper.readTree(pr.getChangedFiles()),
@@ -188,17 +260,9 @@ public class PullRequestController {
                 analysis == null ? null : analysis.getTokensUsed(),
                 analysis == null ? null : analysis.getDeploymentReadinessScore(),
                 analysis == null ? null : analysis.getDeploymentReadinessStatus(),
-                analysis == null ? null : analysis.getProvenanceClass());
-    }
+                analysis == null ? null : analysis.getProvenanceClass(),
+                integrationExtractor.extract(pathsOf(pr)));
 
-    private static Summary toSummary(PullRequest pr, PrAnalysis analysis) {
-        return new Summary(
-                pr.getPrId(), pr.getRepoName(), pr.getPrNumber(), pr.getTitle(), pr.getAuthor(),
-                pr.getMergedAt(),
-                analysis == null ? null : analysis.getRiskScore(),
-                analysis == null ? null : analysis.getRiskLevel(),
-                analysis == null ? null : analysis.getDeploymentReadinessScore(),
-                analysis == null ? null : analysis.getDeploymentReadinessStatus(),
-                analysis != null, pr.getTicketKey());
+        return ResponseEntity.ok(detail);
     }
 }

@@ -14,8 +14,6 @@ import com.gyansys.intellirelease.model.enums.RiskLevel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -107,14 +105,27 @@ public class ReleaseController {
     }
 
     @GetMapping
-    @Operation(summary = "Page of releases for the current tenant, most recently created first")
-    public PageResponse<View> list(@RequestParam(defaultValue = "0") int page,
-                                   @RequestParam(defaultValue = "50") int size) {
-        int safeSize = size <= 0 ? 50 : Math.min(size, 200);
-        var result = releaseService.list(PageRequest.of(Math.max(page, 0), safeSize,
-                Sort.by(Sort.Direction.DESC, "createdAt")));
-        List<View> items = result.getContent().stream().map(View::summary).toList();
-        return PageResponse.of(items, result.getTotalElements(), page, safeSize);
+    @Operation(summary = "List releases for the current tenant, most recently created first")
+    public PageResponse<View> list(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String repo,
+            @RequestParam(required = false) ReleaseStatus status,
+            @RequestParam(required = false) Boolean deployed,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+
+        String term = q == null ? "" : q.trim().toLowerCase();
+
+        List<View> matches = releaseService.list().stream()
+                .filter(release -> term.isEmpty()
+                        || (release.getVersion() + " " + release.getRepoName()).toLowerCase().contains(term))
+                .filter(release -> repo == null || repo.equalsIgnoreCase(release.getRepoName()))
+                .filter(release -> status == null || status == release.getStatus())
+                .filter(release -> deployed == null || deployed == release.isDeployed())
+                .map(View::summary)
+                .toList();
+
+        return PageResponse.slice(matches, page, size);
     }
 
     @GetMapping("/{id}")
