@@ -119,6 +119,10 @@ public class DeterministicNarrator {
                 + " update(s) to the platform. " + excluded
                 + " This summary is generated from the changes that actually shipped.";
 
+        List<AiSynthesisResponse.ChangelogBullet> changelog = request.pullRequests().stream()
+                .map(pr -> new AiSynthesisResponse.ChangelogBullet(pr.prNumber(), pr.ticketKey(), changelogText(pr)))
+                .toList();
+
         return new AiSynthesisResponse(
                 developer,
                 qa,
@@ -128,12 +132,36 @@ public class DeterministicNarrator {
                 explainRisk(request.aggregateRisk()),
                 driftLine,
                 explainReadiness(request.deploymentReadiness()),
+                changelog,
                 ProvenanceClass.RULE_OUTPUT,
                 true,
                 "deterministic-template",
                 "none",
                 0
         );
+    }
+
+    /**
+     * Title first, then the description's first sentence when it adds
+     * something the title didn't already say — the closest a template can get
+     * to a hand-written changelog line without inventing one.
+     */
+    private static String changelogText(AiSynthesisRequest.PrSummary pr) {
+        String title = safe(pr.title());
+        String description = pr.description();
+        if (description == null || description.isBlank() || description.equalsIgnoreCase(title)) {
+            return title;
+        }
+        return title + " — " + firstSentence(description);
+    }
+
+    private static String firstSentence(String text) {
+        String trimmed = text.trim();
+        int period = trimmed.indexOf(". ");
+        if (period > 0 && period < 200) {
+            return trimmed.substring(0, period + 1).trim();
+        }
+        return trimmed.length() > 200 ? trimmed.substring(0, 200) + "…" : trimmed;
     }
 
     // ------------------------------------------------------------------

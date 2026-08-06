@@ -33,9 +33,20 @@ public record AiSynthesisRequest(
         ReadinessResult deploymentReadiness
 ) {
 
-    /** One line per shipped change. Title and conclusions, never code. */
-    public record PrSummary(int prNumber, String title, String ticketKey,
-                            int riskScore, String riskLevel, List<String> capabilities) {
+    /**
+     * One shipped change, described but never with source code or diffs.
+     *
+     * @param changedFiles paths only — the changed-file manifest, never content
+     * @param artifactTypes SAP Commerce artifact type display names touched (e.g. "Type System Definition")
+     */
+    public record PrSummary(int prNumber, String title, String description, String ticketKey,
+                            int riskScore, String riskLevel, List<String> capabilities,
+                            List<String> changedFiles, List<String> artifactTypes) {
+        public PrSummary {
+            capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
+            changedFiles = changedFiles == null ? List.of() : List.copyOf(changedFiles);
+            artifactTypes = artifactTypes == null ? List.of() : List.copyOf(artifactTypes);
+        }
     }
 
     /** A change that did not ship, and the evidence for why it is excluded. */
