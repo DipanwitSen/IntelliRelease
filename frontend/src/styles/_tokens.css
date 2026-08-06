@@ -1,0 +1,373 @@
+/* =========================================================================
+   IntelliRelease Design Tokens
+   -------------------------------------------------------------------------
+   One source of truth for colour, type, space, radius, elevation and motion.
+   Every component reads these variables; no component hard-codes a hex value.
+
+   Theming contract
+   ----------------
+   :root                      -> light theme values (the default)
+   [data-theme="dark"]        -> explicit dark override, set by ThemeService
+   @media (prefers-color-scheme: dark) :root:not([data-theme="light"])
+                              -> respects the OS when the user has not chosen
+
+   The `:not([data-theme="light"])` guard is what lets an explicit light choice
+   win over a dark OS preference — without it the media query would silently
+   override the user's own toggle.
+   ========================================================================= */
+
+:root {
+  /* ---- Brand / accent ------------------------------------------------- */
+  --brand-50:  #eef6ff;
+  --brand-100: #d9ebff;
+  --brand-200: #bcdcff;
+  --brand-300: #8ec6ff;
+  --brand-400: #59a6ff;
+  --brand-500: #3182f6;
+  --brand-600: #1e63db;
+  --brand-700: #1a4fb0;
+  --brand-800: #1b448b;
+  --brand-900: #1b3b73;
+
+  /* ---- Neutral ramp --------------------------------------------------- */
+  --grey-0:   #ffffff;
+  --grey-25:  #fbfcfe;
+  --grey-50:  #f6f8fb;
+  --grey-100: #eef1f6;
+  --grey-150: #e4e9f0;
+  --grey-200: #d8dfe9;
+  --grey-300: #bcc6d4;
+  --grey-400: #94a1b4;
+  --grey-500: #6b7a91;
+  --grey-600: #526176;
+  --grey-700: #3d4a5c;
+  --grey-800: #2a3444;
+  --grey-850: #202836;
+  --grey-900: #171e2a;
+  --grey-950: #0f141d;
+
+  /* ---- Semantic hues (base values; theme maps below assign roles) ------ */
+  --green-100: #dcfce7; --green-500: #16a34a; --green-600: #15803d; --green-900: #052e16;
+  --amber-100: #fef3c7; --amber-500: #d97706; --amber-600: #b45309; --amber-900: #451a03;
+  --red-100:   #fee2e2; --red-500:   #dc2626; --red-600:   #b91c1c; --red-900:   #450a0a;
+  --cyan-100:  #cffafe; --cyan-500:  #0891b2; --cyan-600:  #0e7490; --cyan-900:  #083344;
+  --violet-100:#ede9fe; --violet-500:#7c3aed; --violet-600:#6d28d9; --violet-900:#2e1065;
+
+  /* =======================================================================
+     LIGHT THEME ROLE MAP
+     ===================================================================== */
+  color-scheme: light;
+
+  /* Surfaces, from furthest back to closest to the user */
+  --canvas:          var(--grey-50);
+  --surface:         var(--grey-0);
+  --surface-raised:  var(--grey-0);
+  --surface-sunken:  var(--grey-100);
+  --surface-hover:   var(--grey-50);
+  --surface-active:  var(--grey-100);
+  --surface-inverse: var(--grey-900);
+  --overlay-scrim:   rgb(15 20 29 / 0.45);
+
+  /* Text */
+  --text:           var(--grey-900);
+  --text-secondary: var(--grey-600);
+  --text-muted:     var(--grey-500);
+  --text-inverse:   var(--grey-0);
+  --text-link:      var(--brand-600);
+
+  /* Lines */
+  --border:        var(--grey-200);
+  --border-subtle: var(--grey-150);
+  --border-strong: var(--grey-300);
+
+  /* Interactive */
+  --accent:            var(--brand-600);
+  --accent-hover:      var(--brand-700);
+  --accent-subtle-bg:  var(--brand-50);
+  --accent-subtle-fg:  var(--brand-700);
+  --accent-contrast:   #ffffff;
+
+  /* Status: -bg is a tinted fill, -fg is text/icon on that fill,
+     -solid is for bars, dots and meters that need full saturation. */
+  --success-bg: var(--green-100); --success-fg: var(--green-600); --success-solid: var(--green-500);
+  --warning-bg: var(--amber-100); --warning-fg: var(--amber-600); --warning-solid: var(--amber-500);
+  --danger-bg:  var(--red-100);   --danger-fg:  var(--red-600);   --danger-solid:  var(--red-500);
+  --info-bg:    var(--cyan-100);  --info-fg:    var(--cyan-600);  --info-solid:    var(--cyan-500);
+  --ai-bg:      var(--violet-100);--ai-fg:      var(--violet-600);--ai-solid:      var(--violet-500);
+  --neutral-bg: var(--grey-100);  --neutral-fg: var(--grey-600);  --neutral-solid: var(--grey-400);
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgb(15 20 29 / 0.06);
+  --shadow-sm: 0 1px 3px rgb(15 20 29 / 0.08), 0 1px 2px rgb(15 20 29 / 0.04);
+  --shadow-md: 0 4px 12px rgb(15 20 29 / 0.08), 0 2px 4px rgb(15 20 29 / 0.04);
+  --shadow-lg: 0 12px 28px rgb(15 20 29 / 0.12), 0 4px 8px rgb(15 20 29 / 0.06);
+  --shadow-xl: 0 24px 48px rgb(15 20 29 / 0.18);
+
+  /* Syntax highlighting (payload + code viewers) */
+  --code-bg:      var(--grey-950);
+  --code-text:    #e6edf3;
+  --code-key:     #79c0ff;
+  --code-string:  #a5d6ff;
+  --code-number:  #f2cc60;
+  --code-boolean: #ff7b72;
+  --code-null:    #8b949e;
+  --code-tag:     #7ee787;
+  --code-attr:    #d2a8ff;
+  --code-comment: #8b949e;
+  --code-gutter:  #6e7681;
+
+  /* Diff */
+  --diff-add-bg:    rgb(22 163 74 / 0.14);
+  --diff-add-fg:    #1a7f37;
+  --diff-remove-bg: rgb(220 38 38 / 0.12);
+  --diff-remove-fg: #b91c1c;
+  --diff-change-bg: rgb(217 119 6 / 0.14);
+
+  /* -----------------------------------------------------------------------
+     CHART SERIES — assigned in fixed slot order, never cycled.
+     Validated (light surface #ffffff): lightness band, chroma floor, adjacent
+     CVD separation (worst ΔE 9.1) and normal-vision separation (worst ΔE 19.6)
+     all pass. Three slots sit below 3:1 against white, so every chart using
+     them ships visible direct labels or a table view — that is the documented
+     relief, not an oversight.
+     Past 8 categories, fold the tail into "Other"; never generate a 9th hue.
+     --------------------------------------------------------------------- */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-other: #898781;
+
+  /* Chart chrome: recessive by design — the data is the only loud thing. */
+  --chart-grid: var(--grey-150);
+  --chart-axis: var(--grey-300);
+  --chart-ink: var(--text-secondary);
+  --chart-muted: var(--text-muted);
+
+  /* Single-hue magnitude ramp for ranked bars and heat cells. */
+  --seq-100: #cde2fb;
+  --seq-250: #86b6ef;
+  --seq-400: #3987e5;
+  --seq-550: #1c5cab;
+  --seq-700: #0d366b;
+}
+
+/* =========================================================================
+   DARK THEME ROLE MAP
+   Only the role variables are re-pointed. The ramps above never change, so a
+   token added to one theme cannot go missing from the other.
+   ========================================================================= */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --canvas:          var(--grey-950);
+  --surface:         var(--grey-900);
+  --surface-raised:  var(--grey-850);
+  --surface-sunken:  #0b0f16;
+  --surface-hover:   var(--grey-850);
+  --surface-active:  var(--grey-800);
+  --surface-inverse: var(--grey-50);
+  --overlay-scrim:   rgb(0 0 0 / 0.65);
+
+  --text:           #e8edf5;
+  --text-secondary: var(--grey-300);
+  --text-muted:     var(--grey-400);
+  --text-inverse:   var(--grey-900);
+  --text-link:      var(--brand-300);
+
+  --border:        #2b3648;
+  --border-subtle: #232c3b;
+  --border-strong: #3b4860;
+
+  --accent:            var(--brand-400);
+  --accent-hover:      var(--brand-300);
+  --accent-subtle-bg:  rgb(49 130 246 / 0.16);
+  --accent-subtle-fg:  var(--brand-300);
+  --accent-contrast:   #0b1220;
+
+  /* Tinted fills become low-alpha washes so they sit on dark surfaces without
+     glowing; foregrounds lighten to hold contrast against them. */
+  --success-bg: rgb(22 163 74 / 0.18);  --success-fg: #4ade80; --success-solid: #22c55e;
+  --warning-bg: rgb(217 119 6 / 0.20);  --warning-fg: #fbbf24; --warning-solid: #f59e0b;
+  --danger-bg:  rgb(220 38 38 / 0.20);  --danger-fg:  #f87171; --danger-solid:  #ef4444;
+  --info-bg:    rgb(8 145 178 / 0.20);  --info-fg:    #22d3ee; --info-solid:    #06b6d4;
+  --ai-bg:      rgb(124 58 237 / 0.22); --ai-fg:      #c4b5fd; --ai-solid:      #8b5cf6;
+  --neutral-bg: rgb(148 161 180 / 0.14);--neutral-fg: var(--grey-300); --neutral-solid: var(--grey-500);
+
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5), 0 2px 4px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 12px 28px rgb(0 0 0 / 0.6), 0 4px 8px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 24px 48px rgb(0 0 0 / 0.7);
+
+  --code-bg:   #0b0f16;
+  --code-text: #e6edf3;
+
+  --diff-add-fg:    #3fb950;
+  --diff-remove-fg: #f85149;
+
+  /* The same eight hues re-stepped for the dark surface — not an automatic
+     flip. Validated against #171e2a: all eight clear 3:1, worst adjacent CVD
+     ΔE 8.4, worst adjacent normal-vision ΔE 19.3. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --chart-grid: #2c3444;
+  --chart-axis: #3b4860;
+
+  --seq-100: #0d366b;
+  --seq-250: #184f95;
+  --seq-400: #256abf;
+  --seq-550: #3987e5;
+  --seq-700: #86b6ef;
+}
+
+/* Follow the OS unless the user has explicitly chosen light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --canvas:          var(--grey-950);
+    --surface:         var(--grey-900);
+    --surface-raised:  var(--grey-850);
+    --surface-sunken:  #0b0f16;
+    --surface-hover:   var(--grey-850);
+    --surface-active:  var(--grey-800);
+    --surface-inverse: var(--grey-50);
+    --overlay-scrim:   rgb(0 0 0 / 0.65);
+
+    --text:           #e8edf5;
+    --text-secondary: var(--grey-300);
+    --text-muted:     var(--grey-400);
+    --text-inverse:   var(--grey-900);
+    --text-link:      var(--brand-300);
+
+    --border:        #2b3648;
+    --border-subtle: #232c3b;
+    --border-strong: #3b4860;
+
+    --accent:            var(--brand-400);
+    --accent-hover:      var(--brand-300);
+    --accent-subtle-bg:  rgb(49 130 246 / 0.16);
+    --accent-subtle-fg:  var(--brand-300);
+    --accent-contrast:   #0b1220;
+
+    --success-bg: rgb(22 163 74 / 0.18);  --success-fg: #4ade80; --success-solid: #22c55e;
+    --warning-bg: rgb(217 119 6 / 0.20);  --warning-fg: #fbbf24; --warning-solid: #f59e0b;
+    --danger-bg:  rgb(220 38 38 / 0.20);  --danger-fg:  #f87171; --danger-solid:  #ef4444;
+    --info-bg:    rgb(8 145 178 / 0.20);  --info-fg:    #22d3ee; --info-solid:    #06b6d4;
+    --ai-bg:      rgb(124 58 237 / 0.22); --ai-fg:      #c4b5fd; --ai-solid:      #8b5cf6;
+    --neutral-bg: rgb(148 161 180 / 0.14);--neutral-fg: var(--grey-300); --neutral-solid: var(--grey-500);
+
+    --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5), 0 2px 4px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 12px 28px rgb(0 0 0 / 0.6), 0 4px 8px rgb(0 0 0 / 0.4);
+    --shadow-xl: 0 24px 48px rgb(0 0 0 / 0.7);
+
+    --code-bg:   #0b0f16;
+    --code-text: #e6edf3;
+
+    --diff-add-fg:    #3fb950;
+    --diff-remove-fg: #f85149;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+
+    --chart-grid: #2c3444;
+    --chart-axis: #3b4860;
+
+    --seq-100: #0d366b;
+    --seq-250: #184f95;
+    --seq-400: #256abf;
+    --seq-550: #3987e5;
+    --seq-700: #86b6ef;
+  }
+}
+
+/* =========================================================================
+   NON-THEMED TOKENS
+   Space, type, radius and motion are identical in both themes.
+   ========================================================================= */
+:root {
+  /* 4px base scale */
+  --space-0: 0;
+  --space-1: 0.25rem;   /*  4px */
+  --space-2: 0.5rem;    /*  8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+
+  --font-sans: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --text-2xs: 0.6875rem; /* 11px — table meta, chip counts */
+  --text-xs:  0.75rem;   /* 12px — labels, captions */
+  --text-sm:  0.8125rem; /* 13px — dense table body */
+  --text-md:  0.875rem;  /* 14px — default body */
+  --text-base:0.9375rem; /* 15px — prose */
+  --text-lg:  1.0625rem; /* 17px — card titles */
+  --text-xl:  1.25rem;   /* 20px — page titles */
+  --text-2xl: 1.5rem;    /* 24px — hero numbers */
+  --text-3xl: 1.875rem;  /* 30px — KPI values */
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  --duration-instant: 80ms;
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+  --duration-slow: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout geometry — read by the shell and by sticky offsets everywhere */
+  --sidebar-width: 244px;
+  --sidebar-width-collapsed: 60px;
+  --topbar-height: 56px;
+  --content-max: 1600px;
+
+  /* Stacking order, declared once so overlays cannot fight each other */
+  --z-base: 1;
+  --z-sticky: 100;
+  --z-topbar: 200;
+  --z-sidebar: 300;
+  --z-drawer: 400;
+  --z-modal: 500;
+  --z-toast: 600;
+  --z-tooltip: 700;
+}

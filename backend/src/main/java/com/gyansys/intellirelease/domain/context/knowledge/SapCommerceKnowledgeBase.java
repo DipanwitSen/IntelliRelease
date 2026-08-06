@@ -48,13 +48,13 @@ public class SapCommerceKnowledgeBase {
         this.knowledgeBase = load(objectMapper);
         this.compiledRules = knowledgeBase.fileClassification().stream()
                 .sorted(Comparator.comparingInt(FileClassificationRule::priority).reversed())
-                .map(rule -> new CompiledRule(globToRegex(rule.pattern()), rule))
+                .map(rule -> new CompiledRule(PathGlob.compile(rule.pattern()), rule))
                 .toList();
     }
 
     /** The highest-priority pattern that matches this changed-file path, if any. */
     public Optional<Match> classify(String rawPath) {
-        String candidate = normalise(rawPath);
+        String candidate = PathGlob.normalise(rawPath);
         for (CompiledRule compiled : compiledRules) {
             if (compiled.regex.matcher(candidate).matches()) {
                 ArtifactTypeDefinition definition = knowledgeBase.artifactTypes().get(compiled.rule.artifactType());
@@ -75,74 +75,6 @@ public class SapCommerceKnowledgeBase {
 
     public int artifactTypeCount() {
         return knowledgeBase.artifactTypes().size();
-    }
-
-    private static String normalise(String rawPath) {
-        String path = rawPath.replace('\\', '/').trim();
-        return path.startsWith("/") ? path.substring(1) : path;
-    }
-
-    /**
-     * Translates one glob pattern into a regex with gitignore/Ant semantics:
-     * {@code *} matches within one path segment, {@code **} matches zero or
-     * more whole segments (including zero when it sits between two slashes,
-     * or at the very start of the pattern before a slash).
-     */
-    private static Pattern globToRegex(String glob) {
-        StringBuilder regex = new StringBuilder();
-        int i = 0;
-        int length = glob.length();
-
-        while (i < length) {
-            char current = glob.charAt(i);
-
-            if (current == '*' && i + 1 < length && glob.charAt(i + 1) == '*') {
-                boolean slashBefore = regex.length() == 0 || regex.charAt(regex.length() - 1) == '/';
-                int after = i + 2;
-                boolean slashAfter = after < length && glob.charAt(after) == '/';
-                boolean endOfPattern = after == length;
-
-                if (slashBefore && slashAfter) {
-                    // "X/**/Y" or a leading "**/Y": zero or more whole directories.
-                    regex.append("(?:.*/)?");
-                    i = after + 1;
-                    continue;
-                }
-                if (slashBefore && endOfPattern) {
-                    // Trailing "X/**": X optionally followed by anything.
-                    if (regex.length() > 0) {
-                        regex.setLength(regex.length() - 1);
-                    }
-                    regex.append("(?:/.*)?");
-                    i = after;
-                    continue;
-                }
-                // "**" not cleanly delimited by slashes on both sides: match anything.
-                regex.append(".*");
-                i = after;
-                continue;
-            }
-
-            if (current == '*') {
-                regex.append("[^/]*");
-                i++;
-                continue;
-            }
-            if (current == '?') {
-                regex.append("[^/]");
-                i++;
-                continue;
-            }
-            if ("\\.[]{}()+-^$|".indexOf(current) >= 0) {
-                regex.append('\\').append(current);
-                i++;
-                continue;
-            }
-            regex.append(current);
-            i++;
-        }
-
-        return Pattern.compile("^" + regex + "$");
     }
 
     private static SapContextKnowledgeBase load(ObjectMapper objectMapper) {

@@ -1,31 +1,38 @@
-import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
-import { ApiService } from './services/api.service';
+import { ThemeService } from './core/services/theme.service';
+import { LoginPage } from './features/auth/login.page';
+import { ShellComponent } from './layout/shell/shell.component';
 import { AuthService } from './services/auth.service';
-import { LoginComponent } from './screens/login/login.component';
-import { DashboardComponent } from './screens/dashboard/dashboard.component';
 
-type BackendStatus = 'checking' | 'up' | 'down';
-
+/**
+ * Root component: the authentication gate, and nothing else.
+ *
+ * This gate is a convenience, not a security control — the backend enforces
+ * authentication and approval on every request regardless of what the UI
+ * chooses to render (architecture rule 8). Someone who bypassed this component
+ * would reach a shell whose every request comes back 401.
+ *
+ * ThemeService is injected here purely so it constructs during bootstrap and
+ * applies the stored theme before first paint.
+ */
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, LoginComponent, DashboardComponent],
-  templateUrl: './app.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [ShellComponent, LoginPage],
+  template: `
+    @if (auth.isAuthenticated()) {
+      <ir-shell />
+    } @else {
+      <ir-login />
+    }
+  `,
 })
-export class AppComponent implements OnInit {
-  backendStatus: BackendStatus = 'checking';
+export class AppComponent {
+  protected readonly auth = inject(AuthService);
 
-  constructor(
-    private readonly api: ApiService,
-    readonly auth: AuthService,
-  ) {}
-
-  ngOnInit(): void {
-    this.api.health().subscribe({
-      next: () => (this.backendStatus = 'up'),
-      error: () => (this.backendStatus = 'down'),
-    });
+  constructor() {
+    inject(ThemeService);
   }
 }

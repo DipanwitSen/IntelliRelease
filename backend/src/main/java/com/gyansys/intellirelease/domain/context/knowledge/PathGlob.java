@@ -1,0 +1,105 @@
+package com.gyansys.intellirelease.domain.context.knowledge;
+
+import java.util.regex.Pattern;
+
+/**
+ * Glob matching for changed-file paths, with gitignore/Ant semantics.
+ *
+ * <p>Extracted from {@link SapCommerceKnowledgeBase} once the integration
+ * catalogue needed the same matching. Two independent implementations of
+ * "does this path match this pattern?" is exactly the kind of duplication that
+ * drifts: one gets a fix, the other does not, and the two knowledge bases
+ * quietly start disagreeing about the same file.
+ *
+ * <p>Hand-rolled rather than delegated to {@code java.nio.file.PathMatcher},
+ * because the JDK's {@code **} does not match zero directory segments
+ * (confirmed empirically — see {@code SapCommerceKnowledgeBaseTest}). That
+ * silently misses exactly the shallow paths these patterns are written to
+ * catch: a root {@code manifest.json}, a file sitting directly under
+ * {@code resources/}.
+ *
+ * <p>Semantics:
+ * <ul>
+ *   <li>{@code *} matches within one path segment</li>
+ *   <li>{@code **} matches zero or more whole segments, including zero when it
+ *       sits between two slashes or leads the pattern</li>
+ *   <li>{@code ?} matches one non-separator character</li>
+ * </ul>
+ */
+public final class PathGlob {
+
+    private PathGlob() {
+    }
+
+    /** Normalises separators and strips a leading slash so patterns can be written relative. */
+    public static String normalise(String rawPath) {
+        if (rawPath == null) {
+            return "";
+        }
+        String path = rawPath.replace('\\', '/').trim();
+        return path.startsWith("/") ? path.substring(1) : path;
+    }
+
+    /** Compiles one glob into an anchored regex. */
+    public static Pattern compile(String glob) {
+        StringBuilder regex = new StringBuilder();
+        int i = 0;
+        int length = glob.length();
+
+        while (i < length) {
+            char current = glob.charAt(i);
+
+            if (current == '*' && i + 1 < length && glob.charAt(i + 1) == '*') {
+                boolean slashBefore = regex.length() == 0 || regex.charAt(regex.length() - 1) == '/';
+                int after = i + 2;
+                boolean slashAfter = after < length && glob.charAt(after) == '/';
+                boolean endOfPattern = after == length;
+
+                if (slashBefore && slashAfter) {
+                    // "X/**/Y" or a leading "**/Y": zero or more whole directories.
+                    regex.append("(?:.*/)?");
+                    i = after + 1;
+                    continue;
+                }
+                if (slashBefore && endOfPattern) {
+                    // Trailing "X/**": X optionally followed by anything.
+                    if (regex.length() > 0) {
+                        regex.setLength(regex.length() - 1);
+                    }
+                    regex.append("(?:/.*)?");
+                    i = after;
+                    continue;
+                }
+                // "**" not cleanly delimited by slashes on both sides: match anything.
+                regex.append(".*");
+                i = after;
+                continue;
+            }
+
+            if (current == '*') {
+                regex.append("[^/]*");
+                i++;
+                continue;
+            }
+            if (current == '?') {
+                regex.append("[^/]");
+                i++;
+                continue;
+            }
+            if ("\\.[]{}()+-^$|".indexOf(current) >= 0) {
+                regex.append('\\').append(current);
+                i++;
+                continue;
+            }
+            regex.append(current);
+            i++;
+        }
+
+        return Pattern.compile("^" + regex + "$");
+    }
+
+    /** Convenience for one-off checks; compile once and reuse for hot paths. */
+    public static boolean matches(String glob, String rawPath) {
+        return compile(glob).matcher(normalise(rawPath)).matches();
+    }
+}
