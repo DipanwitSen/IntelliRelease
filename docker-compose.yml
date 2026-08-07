@@ -1,14 +1,40 @@
+# Full POC stack: PostgreSQL 17 + MailHog + AI service + Spring Boot + Angular.
+#
+# Unlike the `dev` profile (in-memory H2, no external dependencies), this brings
+# up the real persistence and email path. Postgres is selected purely through
+# environment variables — see ARCHITECTURE.md, "Database profiles".
+#
+#   docker compose up --build
+#
+# Optional secrets go in a .env file next to this one (it is gitignored):
+#   GROQ_API_KEY=gsk_...
+#   GITHUB_TOKEN=ghp_...
+#   GITHUB_WEBHOOK_SECRET=...
+
 services:
-  backend:
-    build:
-      context: ./backend-java
-    ports:
-      - "8080:8080"
+  postgres:
+    image: postgres:17-alpine
     environment:
-      - SPRING_PROFILES_ACTIVE=local
-      - AI_SERVICE_URL=http://ai:8000
-    depends_on:
-      - ai
+      - POSTGRES_DB=intellirelease
+      - POSTGRES_USER=intellirelease
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-intellirelease}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The backend's Flyway migration runs at startup and fails hard if the
+      # database is not accepting connections yet, so this gate is load-bearing.
+      test: ["CMD-SHELL", "pg_isready -U intellirelease -d intellirelease"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI — read captured mail here
 
   ai:
     build:
@@ -16,18 +42,64 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - AI_PROVIDER_PRIORITY=groq,openai,anthropic,gemini
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Groq is the only hosted provider implemented; Ollama is the local
+      # fallback and deterministic templates are the final one. Leaving the key
+      # unset degrades narration quality, it does not break the service.
       - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
+      # Ollama runs on the host, not in this network, when used at all.
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8000/healthz',timeout=3).status_code==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      # Postgres wiring. Flyway's {vendor} placeholder resolves from the driver,
+      # so the postgresql migration set is what runs here.
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/intellirelease
+      - DB_DRIVER=org.postgresql.Driver
+      - DB_USERNAME=intellirelease
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-intellirelease}
+      - DB_DIALECT=org.hibernate.dialect.PostgreSQLDialect
+      - FLYWAY_LOCATIONS=classpath:db/migration/postgresql
+      # Service-to-service, over the compose network.
+      - AI_SERVICE_URL=http://ai:8000
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      # Optional GitHub integration — unset means webhook-payload-only mode.
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - CORS_ALLOWED_ORIGINS=http://localhost:4200
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai:
+        condition: service_started
+      mailhog:
+        condition: service_started
 
   frontend:
     build:
-      context: ./frontend-angular
+      context: ./frontend
     ports:
       - "4200:4200"
-    environment:
-      - API_BASE_URL=http://backend:8080
+    # No API_BASE_URL here on purpose: Angular is a browser bundle, so a
+    # container-level env var never reaches it. api-base-url.ts resolves the
+    # backend at runtime — on :4200 it targets http://localhost:8080, which is
+    # the port published above.
     depends_on:
       - backend
+
+volumes:
+  pgdata:

@@ -92,7 +92,9 @@ class IntegrationContextExtractorTest {
         assertThat(context.impactedInterfaces())
                 .extracting(IntegrationModel.ImpactedInterface::interfaceId)
                 .contains("in-price");
-        assertThat(context.impactedMappings()).contains("map-price-in");
+        assertThat(context.impactedMappings())
+                .extracting(IntegrationModel.MappingRef::id)
+                .contains("map-price-in");
     }
 
     @Test

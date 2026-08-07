@@ -43,7 +43,7 @@ import java.util.stream.Collectors;
  * deployment confirmation.
  *
  * <p>This deliberately does not run the aggregate risk/impact/regression pass
- * — that is the rest of the planned release pipeline (see CLAUDE.md), not
+ * — that is the rest of the planned release pipeline (see ARCHITECTURE.md), not
  * built yet. What exists here is enough to answer "what actually shipped in
  * this release, and did it go out."
  */

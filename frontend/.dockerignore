@@ -1,0 +1,8 @@
+# node_modules must never be copied in: the host tree carries Windows-native
+# binaries (@rollup/rollup-win32-x64-msvc and friends) that are unusable in the
+# alpine image and would shadow the ones npm ci installs.
+node_modules
+dist
+.angular
+Dockerfile
+.dockerignore

@@ -1,7 +1,7 @@
 # IntelliRelease
 
 AI-Powered SAP Commerce Release Intelligence & Deployment Governance Platform.
-See [CLAUDE.md](CLAUDE.md) for the full architecture and philosophy.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture and philosophy.
 
 ## What is included
 
@@ -20,16 +20,68 @@ See [CLAUDE.md](CLAUDE.md) for the full architecture and philosophy.
 - `ai-service/` FastAPI AI explanation service (Python)
 - `frontend/` Angular dashboard
 
+## Two ways to run it
+
+| | **Docker Compose** | **Natively** |
+|---|---|---|
+| Database | PostgreSQL 17, data persists | H2 in-memory, wiped on restart |
+| You install | Docker Desktop only | JDK 21, Node 20+, Python 3.12, MailHog |
+| Start command | `docker compose up --build` | four terminals, in order |
+| Best for | Demos, anything where data must survive | Day-to-day development, debugging |
+
+Both are supported. Pick one — the sections below cover each.
+
 ## Prerequisites
+
+### For Docker Compose
+
+| Tool | Version | Install (Windows) |
+|---|---|---|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 4.x, with Compose v2 | `winget install Docker.DockerDesktop` |
+
+That is the whole list. PostgreSQL 17, MailHog, JDK 21, Node and Python all come
+from the images — nothing else goes on your machine.
+
+### For running natively
+
+| Tool | Version | Needed for | Notes |
+|---|---|---|---|
+| JDK 21 | 21.x | Backend | `mvnw`/`mvnw.cmd` is committed, no separate Maven install needed. `winget install Microsoft.OpenJDK.21` |
+| Node.js + npm | 20+ (22 tested) | Frontend | Angular CLI is a devDependency — no global install. `winget install OpenJS.NodeJS.LTS` |
+| Python | **3.12** | AI service | `winget install --id Python.Python.3.12 -e`. Pin to 3.12: `requirements.txt` hard-pins `pydantic==2.9.2` / `fastapi==0.115.0` against it. |
+| [MailHog](https://github.com/mailhog/MailHog/releases) | latest | Email notifications | Optional. Grab `MailHog_windows_amd64.exe` into `tools\`. Fake local SMTP trap; does not deliver to the real internet. |
+| [PostgreSQL](https://www.postgresql.org/download/windows/) | 17 | Persistent data | Optional — only if you want persistence without Docker. The `dev` profile uses H2 and needs nothing. See "Running natively against PostgreSQL" below. |
+
+### Optional either way
 
 | Tool | Needed for | Notes |
 |---|---|---|
-| JDK 21 | Backend | `mvnw`/`mvnw.cmd` is committed, no separate Maven install needed |
-| Node.js 20+ and npm | Frontend | |
-| Python 3.10+ | AI service | 3.12 is the target, 3.10 also works |
-| [MailHog](https://github.com/mailhog/MailHog/releases) | Email notifications | No Docker needed — grab `MailHog_windows_amd64.exe`, rename/run directly. Fake local SMTP trap; does not deliver to the real internet. |
-| [ngrok](https://ngrok.com) | Real GitHub webhooks | Only needed to receive webhooks from a real GitHub repo. Not needed to run the app itself. |
 | A Groq API key (free) | Real AI narration | Get one at console.groq.com. Without it, every AI call deterministically falls back to templated narration — the app still works, just with plainer prose. |
+| [ngrok](https://ngrok.com) | Real GitHub webhooks | Only needed to receive webhooks from a real GitHub repo. Not needed to run the app itself. `winget install ngrok.ngrok` |
+| [Ollama](https://ollama.com) | Fully local AI, no API key | Fallback provider when `GROQ_API_KEY` is unset. Listens on `11434`. |
+
+## Running with Docker Compose
+
+```powershell
+docker compose up --build
+```
+
+Brings up all five services: PostgreSQL 17 → MailHog → AI service → backend →
+frontend. The backend waits on a Postgres healthcheck before starting, because
+Flyway migrates at boot and fails hard against a database that is not accepting
+connections yet.
+
+Put optional secrets in a `.env` file next to `docker-compose.yml` (gitignored):
+
+```
+GROQ_API_KEY=gsk_...
+GITHUB_TOKEN=ghp_...
+GITHUB_WEBHOOK_SECRET=...
+POSTGRES_PASSWORD=something-better-than-the-default
+```
+
+Data lives in the `pgdata` volume and survives `docker compose down`. To wipe it:
+`docker compose down -v`.
 
 ## Environment variables
 
@@ -42,6 +94,8 @@ without them, the corresponding feature degrades gracefully rather than failing.
 | `GITHUB_TOKEN` | GitHub API reads (fetch changed files, resolve commits for release build) | unset → falls back to webhook payload data only |
 | `DEVELOPER_DISTRIBUTION`, `QA_DISTRIBUTION`, `BUSINESS_DISTRIBUTION`, `CLIENT_DISTRIBUTION` | Where each audience's release note email goes | `dev-team@demo.local` etc. |
 | `TEAMS_WEBHOOK_URL` | Teams channel notification on release notify | unset → Teams post skipped |
+| `SMTP_HOST`, `SMTP_PORT` | Where MailHog is listening | `localhost` / `1025` |
+| `DATABASE_URL`, `DB_DRIVER`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DIALECT`, `FLYWAY_LOCATIONS` | Point the backend at PostgreSQL instead of H2 | H2 in-memory (see below) |
 
 Set this before starting the **AI service**:
 
@@ -50,7 +104,7 @@ Set this before starting the **AI service**:
 | `GROQ_API_KEY` | Real AI-generated narration via Groq | unset → falls back to Ollama, then to deterministic templates |
 | `GROQ_MODEL` | Which Groq model | `llama-3.1-8b-instant` |
 
-## Running it yourself
+## Running natively
 
 Start these **in order**, each in its own terminal. PowerShell shown; adjust paths for your shell.
 
@@ -102,6 +156,34 @@ Open http://localhost:4200. Sign in with a seeded account:
 | `releasemanager` | `releasemanager` | RELEASE_MANAGER, APPROVER |
 | `approver` | `approver` | APPROVER |
 
+### Running natively against PostgreSQL
+
+Only if you want data to survive restarts without Docker. Install PostgreSQL 17,
+create the database, then start the backend with the datasource pointed at it —
+there is no Postgres Spring profile, it is all environment variables.
+
+```powershell
+# One time: create the database and role
+psql -U postgres -c "CREATE USER intellirelease WITH PASSWORD 'intellirelease';"
+psql -U postgres -c "CREATE DATABASE intellirelease OWNER intellirelease;"
+```
+
+```powershell
+cd backend
+$env:DATABASE_URL     = "jdbc:postgresql://localhost:5432/intellirelease"
+$env:DB_DRIVER        = "org.postgresql.Driver"
+$env:DB_USERNAME      = "intellirelease"
+$env:DB_PASSWORD      = "intellirelease"
+$env:DB_DIALECT       = "org.hibernate.dialect.PostgreSQLDialect"
+$env:FLYWAY_LOCATIONS = "classpath:db/migration/postgresql"
+.\mvnw.cmd spring-boot:run        # note: no dev profile
+```
+
+Flyway creates the schema on first boot from
+`backend/src/main/resources/db/migration/postgresql/`. Do not pass
+`-Dspring-boot.run.profiles=dev` here — that profile is only about verbose
+logging, but skipping it keeps the intent clear.
+
 ## Using it
 
 ### Path A — real GitHub webhooks (needs ngrok)
@@ -134,6 +216,7 @@ Open http://localhost:4200. Sign in with a seeded account:
 - Backend: `8080`
 - AI service: `8000`
 - Frontend: `4200`
+- PostgreSQL: `5432` (Docker Compose, or a native install)
 - MailHog: `1025` (SMTP), `8025` (UI)
 - Ollama (optional, local AI model fallback): `11434`
 

@@ -21,7 +21,7 @@ import java.util.UUID;
  * list, and one combined post to Teams.
  *
  * <p>Every path here is gated on {@link ReleaseStatus#APPROVED}. This is the
- * backend control CLAUDE.md's philosophy chain ends on — "AI explains. Humans
+ * backend control ARCHITECTURE.md's philosophy chain ends on — "AI explains. Humans
  * approve." — enforced structurally: {@link ApprovalRequiredException} is
  * thrown from this service, not checked in the controller, so there is no
  * code path that reaches an SMTP send or a Teams post without a human having

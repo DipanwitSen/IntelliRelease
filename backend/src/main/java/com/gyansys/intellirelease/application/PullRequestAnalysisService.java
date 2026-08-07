@@ -114,7 +114,7 @@ public class PullRequestAnalysisService {
         // 1.5. Deployment Strategy Engine — SAP Commerce knowledge only, no
         //      AI, no source code. Runs immediately after the Context Engine
         //      and before Impact/Risk, per the philosophy chain this platform
-        //      documents in CLAUDE.md.
+        //      documents in ARCHITECTURE.md.
         DeploymentStrategyResult deploymentStrategy = deploymentStrategyEngine.evaluate(context);
 
         // 2. Four engines off the same context. Independent of each other.

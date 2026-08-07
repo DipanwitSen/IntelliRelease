@@ -10,3 +10,5 @@ frontend/.angular/
 .env
 *.log
 tools/
+.idea/
+*.iml
