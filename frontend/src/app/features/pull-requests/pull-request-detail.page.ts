@@ -285,6 +285,103 @@ import { confidenceTone, deploymentStrategyTone, humanise, readinessTone, riskSc
             </ir-section-card>
           }
 
+          @if (detail.impexAnalysis; as impex) {
+            <ir-section-card title="ImpEx Analysis" icon="database">
+              <div actions><ir-provenance [value]="impex.provenanceClass" /></div>
+              @if (!impex.touched) {
+                <ir-empty-state icon="check-circle" title="No ImpEx files in this change"
+                                body="Nothing in this pull request declares INSERT_UPDATE, UPDATE or REMOVE operations." />
+              } @else if (impex.contentUnavailable) {
+                <div class="callout tone-warning">
+                  <ir-icon name="alert-triangle" [size]="16" class="callout-icon" />
+                  <div>
+                    <div class="callout-title">ImpEx content unavailable</div>
+                    {{ impex.filesWithoutContent.length }} file(s) touched but their content could not be fetched
+                    &mdash; no GitHub token configured, or the file is unreadable at this commit.
+                    <div class="chip-row" style="margin-top: var(--space-2)">
+                      @for (path of impex.filesWithoutContent; track path) {
+                        <span class="chip chip-mono">{{ path }}</span>
+                      }
+                    </div>
+                  </div>
+                </div>
+              } @else {
+                <div class="row-2 row-wrap">
+                  @if (impex.operationCounts.insertUpdate) {
+                    <ir-badge [label]="'INSERT_UPDATE ' + impex.operationCounts.insertUpdate" tone="success" [humanize]="false" />
+                  }
+                  @if (impex.operationCounts.update) {
+                    <ir-badge [label]="'UPDATE ' + impex.operationCounts.update" tone="info" [humanize]="false" />
+                  }
+                  @if (impex.operationCounts.remove) {
+                    <ir-badge [label]="'REMOVE ' + impex.operationCounts.remove" tone="danger" [humanize]="false" />
+                  }
+                  @if (impex.operationCounts.insert) {
+                    <ir-badge [label]="'INSERT ' + impex.operationCounts.insert" tone="neutral" [humanize]="false" />
+                  }
+                  <span class="chip chip-mono">{{ impex.filesAnalyzed }} file(s)</span>
+                  <span class="chip chip-mono">{{ impex.operationCounts.total }} operation(s) total</span>
+                </div>
+
+                <div class="section-title" style="margin-top: var(--space-4)">By item type</div>
+                <div class="stack-2" style="margin-top: var(--space-2)">
+                  @for (type of impex.byType; track type.itemType) {
+                    <div class="row-2 impact-row row-wrap">
+                      <span class="weight-medium">{{ type.itemType }}</span>
+                      <span class="spacer"></span>
+                      @if (type.insertUpdateCount) { <span class="chip chip-mono">INSERT_UPDATE {{ type.insertUpdateCount }}</span> }
+                      @if (type.updateCount) { <span class="chip chip-mono">UPDATE {{ type.updateCount }}</span> }
+                      @if (type.removeCount) { <span class="chip chip-mono">REMOVE {{ type.removeCount }}</span> }
+                      @if (type.insertCount) { <span class="chip chip-mono">INSERT {{ type.insertCount }}</span> }
+                      <span class="chip">{{ type.totalCount }} total</span>
+                    </div>
+                  }
+                </div>
+
+                <div class="section-title" style="margin-top: var(--space-4)">Items &amp; links</div>
+                <div class="stack-2" style="margin-top: var(--space-2)">
+                  @for (item of impex.items; track item.sourceFile + item.itemType + item.mode + item.key) {
+                    <details class="impex-item">
+                      <summary>
+                        <ir-badge [label]="item.mode" [tone]="impexModeTone(item.mode)" [humanize]="false" />
+                        <span class="weight-medium">{{ item.itemType }}</span>
+                        <span class="text-sm secondary truncate">{{ item.key }}</span>
+                        <span class="spacer"></span>
+                        @if (item.links.length) {
+                          <span class="chip chip-mono">{{ item.links.length }} link(s)</span>
+                        }
+                      </summary>
+                      <div class="impex-item-body">
+                        @if (objectEntries(item.fields).length) {
+                          <div class="def-grid">
+                            @for (entry of objectEntries(item.fields); track entry[0]) {
+                              <div>
+                                <div class="def-label">{{ entry[0] }}</div>
+                                <div class="def-value def-value-mono">{{ entry[1] }}</div>
+                              </div>
+                            }
+                          </div>
+                        }
+                        @if (item.links.length) {
+                          <div class="section-title" style="margin-top: var(--space-3)">Linked via</div>
+                          @for (link of item.links; track link.field) {
+                            <div class="row-2 row-wrap" style="margin-top: var(--space-1)">
+                              <span class="chip chip-mono">{{ link.field }}</span>
+                              @for (key of link.targetKeys; track key) {
+                                <span class="chip">{{ key }}</span>
+                              }
+                            </div>
+                          }
+                        }
+                        <div class="text-xs muted" style="margin-top: var(--space-2)">{{ item.sourceFile }}</div>
+                      </div>
+                    </details>
+                  }
+                </div>
+              }
+            </ir-section-card>
+          }
+
           @if (detail.confirmedDeploymentStrategy && detail.aiSummary; as ai) {
             <ir-section-card title="Release notes" icon="file-text">
               <div actions class="row-2">
@@ -365,6 +462,17 @@ import { confidenceTone, deploymentStrategyTone, humanise, readinessTone, riskSc
       .check-list { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-md); }
       .check-list li { display: flex; align-items: flex-start; gap: var(--space-2); }
       .check-icon { color: var(--tone-success, var(--accent)); margin-top: 2px; flex-shrink: 0; }
+
+      .impex-item {
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+      }
+      .impex-item summary {
+        display: flex; align-items: center; gap: var(--space-2);
+        cursor: pointer; list-style: none;
+      }
+      .impex-item summary::-webkit-details-marker { display: none; }
+      .impex-item-body { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
     `,
   ],
 })
@@ -390,6 +498,17 @@ export class PullRequestDetailPage implements OnInit, OnDestroy {
   protected readonly deploymentStrategyTone = deploymentStrategyTone;
   protected readonly confidenceTone = confidenceTone;
   protected readonly humanise = humanise;
+  protected readonly objectEntries = Object.entries;
+
+  /** INSERT_UPDATE/UPDATE/REMOVE/INSERT get the same colour vocabulary as risk and severity elsewhere. */
+  protected impexModeTone(mode: string): 'success' | 'info' | 'danger' | 'neutral' {
+    switch (mode) {
+      case 'INSERT_UPDATE': return 'success';
+      case 'UPDATE': return 'info';
+      case 'REMOVE': return 'danger';
+      default: return 'neutral';
+    }
+  }
 
   constructor() {
     effect(() => {

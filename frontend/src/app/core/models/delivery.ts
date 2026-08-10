@@ -107,6 +107,8 @@ export interface PullRequestDetail {
   readonly riskReasons?: readonly RiskReason[];
   readonly riskPolicyVersion?: string;
   readonly configurationDrift?: ConfigurationDrift;
+  /** What this pull request's ImpEx files insert/update/remove, and how those rows link. */
+  readonly impexAnalysis?: ImpexAnalysis;
   readonly aiSummary?: AiAnalysis;
   readonly deploymentReadinessScore?: number;
   readonly deploymentReadinessStatus?: ReadinessStatus;
@@ -226,6 +228,57 @@ export interface DriftItem {
   readonly classification: string;
   readonly description: string;
   readonly environment?: string;
+}
+
+/**
+ * What a pull request's ImpEx files declare. `touched = false` means no
+ * `.impex` file changed. `contentUnavailable = true` means one or more
+ * `.impex` files changed but their content could not be fetched (no GitHub
+ * token configured, a deleted file, etc.) — read as "unknown", never as "no
+ * CMS impact".
+ */
+export interface ImpexAnalysis {
+  readonly touched: boolean;
+  readonly contentUnavailable: boolean;
+  readonly filesAnalyzed: number;
+  readonly filesWithoutContent: readonly string[];
+  readonly operationCounts: ImpexOperationCounts;
+  readonly byType: readonly ImpexTypeSummary[];
+  readonly items: readonly ImpexItemView[];
+  readonly provenanceClass?: ProvenanceClass;
+}
+
+export interface ImpexOperationCounts {
+  readonly insertUpdate: number;
+  readonly update: number;
+  readonly remove: number;
+  readonly insert: number;
+  readonly total: number;
+}
+
+export interface ImpexTypeSummary {
+  readonly itemType: string;
+  readonly insertUpdateCount: number;
+  readonly updateCount: number;
+  readonly removeCount: number;
+  readonly insertCount: number;
+  readonly totalCount: number;
+}
+
+/** A reference from one row to another item, e.g. a component's `contentSlot(uid)` qualifier. */
+export interface ImpexLink {
+  readonly field: string;
+  readonly targetKeys: readonly string[];
+}
+
+/** One row from one ImpEx block: what it is, what operation touched it, and what it links to. */
+export interface ImpexItemView {
+  readonly itemType: string;
+  readonly mode: 'INSERT_UPDATE' | 'UPDATE' | 'REMOVE' | 'INSERT' | string;
+  readonly key: string;
+  readonly fields: Readonly<Record<string, string>>;
+  readonly links: readonly ImpexLink[];
+  readonly sourceFile: string;
 }
 
 /* =========================================================================

@@ -10,12 +10,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * GitHub adapter: webhooks in, REST API out.
@@ -112,6 +117,31 @@ public class GitHubProvider implements GitProvider {
             log.warn("GitHub compare failed for {} {}...{}: {}",
                     repoFullName, fromRef, toRef, exception.getMessage());
             return List.of();
+        }
+    }
+
+    @Override
+    public Optional<String> fetchFileContent(String repoFullName, String path, String ref) {
+        if (!isConfigured() || ref == null || ref.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            String encodedPath = Arrays.stream(path.split("/"))
+                    .map(segment -> URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20"))
+                    .collect(Collectors.joining("/"));
+            JsonNode file = get("/repos/" + repoFullName + "/contents/" + encodedPath + "?ref=" + ref);
+            if (file == null || !file.has("content")) {
+                return Optional.empty();
+            }
+            String encoded = file.path("content").asText("");
+            if (!"base64".equals(file.path("encoding").asText("base64"))) {
+                return Optional.of(encoded);
+            }
+            byte[] decoded = Base64.getMimeDecoder().decode(encoded);
+            return Optional.of(new String(decoded, StandardCharsets.UTF_8));
+        } catch (RuntimeException exception) {
+            log.warn("GitHub content fetch failed for {}/{}@{}: {}", repoFullName, path, ref, exception.getMessage());
+            return Optional.empty();
         }
     }
 

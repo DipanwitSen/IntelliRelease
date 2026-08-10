@@ -99,6 +99,14 @@ public class PrAnalysis {
     @Column(name = "configuration_drift")
     private String configurationDrift;
 
+    // --- Deterministic: ImpEx Analysis Engine (DERIVED_FACT) --------------
+    // Populated for every analysis run since V6; null only for rows analysed
+    // before this engine existed. See ImpexModel.ImpexAnalysis for the
+    // "untouched" vs "content unavailable" vs populated distinction.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "impex_analysis")
+    private String impexAnalysis;
+
     // --- AI: explanation only (AI_INFERENCE) ------------------------------
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "ai_summary")

@@ -94,6 +94,8 @@ public class PullRequestController {
             JsonNode impactAnalysis, JsonNode regressionRecommendation,
             Integer riskScore, RiskLevel riskLevel, JsonNode riskReasons, String riskPolicyVersion,
             JsonNode configurationDrift,
+            /** What this pull request's ImpEx files insert/update/remove, and how those rows link. */
+            JsonNode impexAnalysis,
             JsonNode aiSummary, Boolean aiFallbackUsed, String modelProvider, String modelName,
             Integer tokensUsed,
             Integer deploymentReadinessScore, ReadinessStatus deploymentReadinessStatus,
@@ -291,6 +293,7 @@ public class PullRequestController {
                 analysis == null ? null : jsonMapper.readTree(analysis.getRiskReasons()),
                 analysis == null ? null : analysis.getRiskPolicyVersion(),
                 analysis == null ? null : jsonMapper.readTree(analysis.getConfigurationDrift()),
+                analysis == null ? null : jsonMapper.readTree(analysis.getImpexAnalysis()),
                 analysis == null ? null : jsonMapper.readTree(analysis.getAiSummary()),
                 analysis == null ? null : analysis.isAiFallbackUsed(),
                 analysis == null ? null : analysis.getModelProvider(),

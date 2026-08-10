@@ -34,6 +34,20 @@ public interface GitProvider {
      */
     List<CommitRef> listCommitsBetween(String repoFullName, String fromRef, String toRef);
 
+    /**
+     * Raw content of one file at a specific ref (typically a merge commit
+     * SHA), decoded from the provider's transport encoding.
+     *
+     * <p>Used only by deterministic parsers — the ImpEx Analysis Engine reads
+     * a file this way to count and link what it declares. Nothing this
+     * returns is ever forwarded to the AI service; that invariant lives in
+     * the callers, not here.
+     *
+     * @return empty when the provider is unreachable, unconfigured, or the
+     *         file does not exist at that ref
+     */
+    Optional<String> fetchFileContent(String repoFullName, String path, String ref);
+
     /** Whether credentials are present. False means live calls are skipped. */
     boolean isConfigured();
 }

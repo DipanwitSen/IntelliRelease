@@ -5,6 +5,7 @@ import com.gyansys.intellirelease.adapters.ai.AiAnalysisRequest;
 import com.gyansys.intellirelease.adapters.ai.AiAnalysisResponse;
 import com.gyansys.intellirelease.adapters.ai.AiServiceClient;
 import com.gyansys.intellirelease.adapters.ai.DeterministicNarrator;
+import com.gyansys.intellirelease.adapters.git.GitProvider;
 import com.gyansys.intellirelease.domain.context.ChangedFile;
 import com.gyansys.intellirelease.domain.context.ContextResult;
 import com.gyansys.intellirelease.domain.context.SAPCommerceContextEngine;
@@ -14,6 +15,8 @@ import com.gyansys.intellirelease.domain.drift.ConfigurationDriftEngine;
 import com.gyansys.intellirelease.domain.drift.DriftResult;
 import com.gyansys.intellirelease.domain.impact.ImpactAnalyzer;
 import com.gyansys.intellirelease.domain.impact.ImpactResult;
+import com.gyansys.intellirelease.domain.impex.ImpexAnalysisEngine;
+import com.gyansys.intellirelease.domain.impex.ImpexModel;
 import com.gyansys.intellirelease.domain.readiness.DeploymentReadinessEngine;
 import com.gyansys.intellirelease.domain.readiness.ReadinessInput;
 import com.gyansys.intellirelease.domain.readiness.ReadinessResult;
@@ -35,7 +38,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -66,6 +72,8 @@ public class PullRequestAnalysisService {
     private final ConfigurationDriftEngine driftEngine;
     private final DeploymentReadinessEngine readinessEngine;
     private final ConfigurationBaselineProvider baselineProvider;
+    private final ImpexAnalysisEngine impexAnalysisEngine;
+    private final GitProvider gitProvider;
     private final AiServiceClient aiServiceClient;
     private final DeterministicNarrator narrator;
     private final JsonMapper jsonMapper;
@@ -81,6 +89,8 @@ public class PullRequestAnalysisService {
                                       ConfigurationDriftEngine driftEngine,
                                       DeploymentReadinessEngine readinessEngine,
                                       ConfigurationBaselineProvider baselineProvider,
+                                      ImpexAnalysisEngine impexAnalysisEngine,
+                                      GitProvider gitProvider,
                                       AiServiceClient aiServiceClient,
                                       DeterministicNarrator narrator,
                                       JsonMapper jsonMapper,
@@ -95,6 +105,8 @@ public class PullRequestAnalysisService {
         this.driftEngine = driftEngine;
         this.readinessEngine = readinessEngine;
         this.baselineProvider = baselineProvider;
+        this.impexAnalysisEngine = impexAnalysisEngine;
+        this.gitProvider = gitProvider;
         this.aiServiceClient = aiServiceClient;
         this.narrator = narrator;
         this.jsonMapper = jsonMapper;
@@ -123,6 +135,11 @@ public class PullRequestAnalysisService {
         RegressionResult regression = regressionRecommender.recommend(impact, risk);
         DriftResult drift = evaluateDrift(context);
 
+        // 2.5. ImpEx Analysis Engine — reads the actual content of any .impex
+        //      file this pull request touched (never forwarded to the AI
+        //      service) and counts/links what it declares.
+        ImpexModel.ImpexAnalysis impexAnalysis = analyzeImpex(pullRequest, changedFiles);
+
         // 3. Composition. Approval and QA sign-off are release-level facts, so a
         //    single PR always scores them as pending rather than assuming them.
         ReadinessResult readiness = readinessEngine.evaluate(
@@ -139,6 +156,7 @@ public class PullRequestAnalysisService {
         analysis.setRiskReasons(jsonMapper.toJson(risk.reasons()));
         analysis.setRiskPolicyVersion(RiskPolicy.POLICY_VERSION);
         analysis.setConfigurationDrift(jsonMapper.toJson(drift));
+        analysis.setImpexAnalysis(jsonMapper.toJson(impexAnalysis));
         analysis.setDeploymentReadinessScore(readiness.score());
         analysis.setDeploymentReadinessStatus(readiness.status());
 
@@ -205,6 +223,33 @@ public class PullRequestAnalysisService {
         return driftEngine.compare(
                 baselineProvider.productionBaseline(),
                 baselineProvider.releaseSnapshot("current"));
+    }
+
+    /**
+     * Fetches the current content of every {@code .impex} file this pull
+     * request touched and hands it to the engine — or, if there is nothing
+     * to fetch, returns the honest "untouched" or "content unavailable"
+     * sentinel rather than an empty-looking populated shape.
+     */
+    private ImpexModel.ImpexAnalysis analyzeImpex(PullRequest pullRequest, List<ChangedFile> changedFiles) {
+        List<String> impexPaths = changedFiles.stream()
+                .map(ChangedFile::path)
+                .filter(path -> path.toLowerCase().endsWith(".impex"))
+                .toList();
+        if (impexPaths.isEmpty()) {
+            return ImpexModel.ImpexAnalysis.untouched();
+        }
+        if (!gitProvider.isConfigured() || pullRequest.getMergeSha() == null) {
+            return ImpexModel.ImpexAnalysis.unavailable(impexPaths);
+        }
+
+        Map<String, String> contents = new LinkedHashMap<>();
+        List<String> missing = new ArrayList<>();
+        for (String path : impexPaths) {
+            gitProvider.fetchFileContent(pullRequest.getRepoName(), path, pullRequest.getMergeSha())
+                    .ifPresentOrElse(content -> contents.put(path, content), () -> missing.add(path));
+        }
+        return impexAnalysisEngine.analyze(contents, missing);
     }
 
     private void applyNarration(PrAnalysis analysis, PullRequest pullRequest, ContextResult context,
