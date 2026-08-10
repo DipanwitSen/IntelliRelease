@@ -22,7 +22,12 @@ export interface Crumb {
  * because the title only exists after the fetch resolves.
  *
  * The dynamic crumb is cleared on every navigation so a stale title can never
- * survive into an unrelated page.
+ * survive into an unrelated page. While it is still loading, a placeholder
+ * takes its place instead of leaving the parent crumb (e.g. "Pull Requests")
+ * looking like the page you are already on: without it, the parent would
+ * briefly render as unclickable text every time a detail page's fetch is in
+ * flight, exactly when a reader still on the previous page most wants to be
+ * able to click back to it.
  */
 @Injectable({ providedIn: 'root' })
 export class BreadcrumbService {
@@ -31,11 +36,16 @@ export class BreadcrumbService {
 
   private readonly routeCrumbs = signal<readonly Crumb[]>([]);
   private readonly detailCrumb = signal<Crumb | null>(null);
+  /** True when the deepest matched route named no breadcrumb of its own — a page is expected to call {@link setDetail}. */
+  private readonly awaitingDetail = signal(false);
 
   readonly crumbs = computed<readonly Crumb[]>(() => {
     const base = this.routeCrumbs();
     const detail = this.detailCrumb();
-    return detail ? [...base, detail] : base;
+    if (detail) {
+      return [...base, detail];
+    }
+    return this.awaitingDetail() ? [...base, { label: '…' }] : base;
   });
 
   constructor() {
@@ -43,7 +53,9 @@ export class BreadcrumbService {
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
       .subscribe(() => {
         this.detailCrumb.set(null);
-        this.routeCrumbs.set(this.build(this.route.root, [], []));
+        const built = this.build(this.route.root, [], []);
+        this.routeCrumbs.set(built.crumbs);
+        this.awaitingDetail.set(built.awaitingDetail);
       });
   }
 
@@ -56,10 +68,10 @@ export class BreadcrumbService {
     route: ActivatedRoute,
     urlSoFar: string[],
     acc: readonly Crumb[],
-  ): readonly Crumb[] {
+  ): { crumbs: readonly Crumb[]; awaitingDetail: boolean } {
     const child = route.firstChild;
     if (!child) {
-      return acc;
+      return { crumbs: acc, awaitingDetail: false };
     }
 
     const segments = child.snapshot.url.map((segment) => segment.path);
@@ -69,6 +81,13 @@ export class BreadcrumbService {
     const next = label
       ? [...acc, { label, link: url.length ? ['/', ...url] : ['/'] }]
       : acc;
+
+    if (!child.firstChild) {
+      // Deepest matched route. One with no label of its own (e.g. a `:id`
+      // segment) is a detail route naming its subject via setDetail() —
+      // everything gathered so far is an ancestor, not the current page.
+      return { crumbs: next, awaitingDetail: !label };
+    }
 
     return this.build(child, url, next);
   }
